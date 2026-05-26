@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+.env.local
+.DS_Store
+*.log
+
+# API keys saved via UI
+data/settings.json
+
+# Brain dev-mode persistence (rigenerabile via re-upload, contiene embeddings pesanti)
+data/brain-documents.json
+data/brain-chunks.json
+data/*.tmp

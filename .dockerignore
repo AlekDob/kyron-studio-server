@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.env
+.env.local
+*.log
+.DS_Store
+src/_legacy
+data
+tests
+supabase
+docker-compose.yml
+README-dev.md
+MIGRATION-FROM-SPACESHIP.md
