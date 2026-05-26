@@ -7,6 +7,7 @@ import { onboardSchoolRoute } from "@/features/onboard-school/route.js";
 import { settingsRoute } from "@/features/settings/settings.route.js";
 import { collectionsRoute } from "@/features/collections/route.js";
 import { dataEditorRoute } from "@/features/data-editor/route.js";
+import { reviewEditorRoute } from "@/features/review-editor/route.js";
 
 // Brain: decision-013 — studio-server e' il prodotto agentico orizzontale di
 // Studio Futuro. Tenant-aware via header X-Tenant. Oggi serve Kyron, domani
@@ -37,6 +38,7 @@ app.route("/agents/onboard-school", onboardSchoolRoute);
 app.route("/settings", settingsRoute);
 app.route("/api/v1/collections", collectionsRoute);
 app.route("/agents/data-editor", dataEditorRoute);
+app.route("/agents/review-editor", reviewEditorRoute);
 
 const port = Number(process.env.PORT ?? 8790);
 serve({ fetch: app.fetch, port }, (info) => {
