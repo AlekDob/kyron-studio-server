@@ -86,6 +86,7 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /health                           → health check
 /agents/onboard-school            → SSE agent (X-Tenant required)
 /agents/data-editor               → SSE agent Editor Dati (X-Tenant + kyron-rev) — feature 002
+/agents/review-editor             → SSE agent Review Editor (X-Tenant + kyron-rev) — feature 003
 /settings                         → AI provider config + model routing
 /api/v1/collections               → BFF gateway Payload (X-Tenant + kyron-rev cookie) — feature 001
 /api/v1/collections/:slug         → list records
@@ -115,8 +116,10 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 
 - `documentation/features/001-bff-gateway.md` — gateway Payload REST normalizzato
 - `documentation/features/002-data-editor-agent.md` — agente AI multi-tool
+- `documentation/features/003-review-editor-agent.md` — agente AI Review Editor (workstream 03)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`
+- Workstream 03: `Kyron/documentation/workstreams/03-studio-standalone.md`
 - Origine: migrato da `spaceship-server` (2026-05-26, vedi `MIGRATION-FROM-SPACESHIP.md`)
 
 ## Gotcha critici
