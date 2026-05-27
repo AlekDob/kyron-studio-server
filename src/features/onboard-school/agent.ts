@@ -14,6 +14,9 @@ import {
   updatePortal,
   deletePortal,
   addBundleToPortal,
+  updatePortalCatalog,
+  updateBundleInPortal,
+  removeBundleFromPortal,
 } from "@/features/portals/writer.js";
 
 interface AgentRunOptions {
@@ -301,6 +304,114 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             ...result,
             message: `Bundle "${name}" aggiunto a ${portal.nome} (${result.total} kit totali).`,
           };
+        },
+      }),
+      update_catalog: tool({
+        description:
+          "Sostituisce l'intera lista catalog.visibleSlugs di un portale esistente. Usa per aggiungere/rimuovere prodotti dal catalogo visibile sul portale. Passa la nuova lista completa (non un diff).",
+        parameters: z.object({
+          portalSlug: z.string(),
+          visibleSlugs: z
+            .array(z.string())
+            .describe("nuova lista completa di slug prodotti visibili"),
+        }),
+        execute: async ({ portalSlug, visibleSlugs }) => {
+          const { portal, candidates } = await resolvePortal(portalSlug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${portalSlug}" e' ambiguo (${candidates.length} match).`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${portalSlug}" non trovato.` };
+          }
+          const result = await updatePortalCatalog(portal.slug, visibleSlugs);
+          return {
+            ...result,
+            message: `Catalogo ${portal.nome} aggiornato (${result.total} prodotti).`,
+          };
+        },
+      }),
+      update_bundle: tool({
+        description:
+          "Modifica nome, prezzo e/o componenti di un bundle esistente. Passa null per i campi che NON vuoi modificare. Per `components` passa l'intera lista nuova (non un diff).",
+        parameters: z.object({
+          portalSlug: z.string(),
+          bundleSlug: z.string(),
+          name: z.string().nullable(),
+          finalPriceEur: z.number().positive().nullable(),
+          components: z
+            .array(
+              z.object({
+                productSlug: z.string(),
+                variantSku: z.string(),
+              }),
+            )
+            .nullable()
+            .describe("intera nuova lista componenti, o null per non toccare"),
+        }),
+        execute: async ({ portalSlug, bundleSlug, name, finalPriceEur, components }) => {
+          const { portal, candidates } = await resolvePortal(portalSlug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${portalSlug}" e' ambiguo.`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${portalSlug}" non trovato.` };
+          }
+          const patch: {
+            name?: string;
+            finalPriceEur?: number;
+            components?: Array<{
+              productSlug: string;
+              selection: { kind: "variant"; variantSku: string };
+            }>;
+          } = {};
+          if (name != null) patch.name = name;
+          if (finalPriceEur != null) patch.finalPriceEur = finalPriceEur;
+          if (components != null) {
+            patch.components = components.map((c) => ({
+              productSlug: c.productSlug,
+              selection: { kind: "variant", variantSku: c.variantSku },
+            }));
+          }
+          try {
+            const result = await updateBundleInPortal(
+              portal.slug,
+              bundleSlug,
+              patch,
+            );
+            return {
+              ...result,
+              message: `Bundle ${bundleSlug} aggiornato: ${result.updatedFields.join(", ")}.`,
+            };
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : "update failed" };
+          }
+        },
+      }),
+      remove_bundle: tool({
+        description:
+          "Rimuove un bundle/kit da un portale. ATTENZIONE: irreversibile. Chiedi conferma all'utente PRIMA di chiamare il tool.",
+        parameters: z.object({
+          portalSlug: z.string(),
+          bundleSlug: z.string(),
+        }),
+        execute: async ({ portalSlug, bundleSlug }) => {
+          const { portal } = await resolvePortal(portalSlug);
+          if (!portal) return { error: `Portale "${portalSlug}" non trovato.` };
+          try {
+            const result = await removeBundleFromPortal(portal.slug, bundleSlug);
+            return {
+              ...result,
+              message: `Bundle ${bundleSlug} rimosso da ${portal.nome} (${result.total} kit rimanenti).`,
+            };
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : "remove failed" };
+          }
         },
       }),
       render_logo_uploader: tool({

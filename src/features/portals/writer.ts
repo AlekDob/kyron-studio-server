@@ -132,6 +132,111 @@ export async function addBundleToPortal(
   return { ok: true, slug, bundleSlug: bundle.slug, total: next.length };
 }
 
+export async function updatePortalCatalog(
+  slug: string,
+  visibleSlugs: string[],
+): Promise<{ ok: boolean; slug: string; total: number }> {
+  const dir = resolveExportDir();
+  const filePath = path.join(dir, `${slug}.md`);
+  const raw = await fs.readFile(filePath, "utf-8");
+  const { entries, body } = parseFrontmatterRaw(raw);
+  const idx = entries.findIndex(([k]) => k === "catalog");
+  const current =
+    idx !== -1
+      ? ((parseJsonSafe(entries[idx][1]) as {
+          visibleSlugs?: string[];
+          hiddenSlugs?: string[];
+        }) ?? {})
+      : {};
+  const next = {
+    visibleSlugs: [...new Set(visibleSlugs)],
+    hiddenSlugs: current.hiddenSlugs ?? [],
+  };
+  if (idx !== -1) {
+    entries[idx][1] = JSON.stringify(next);
+  } else {
+    entries.push(["catalog", JSON.stringify(next)]);
+  }
+  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
+  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+  return { ok: true, slug, total: next.visibleSlugs.length };
+}
+
+export interface BundlePatch {
+  name?: string;
+  finalPriceEur?: number;
+  components?: BundleInput["components"];
+}
+
+export async function updateBundleInPortal(
+  slug: string,
+  bundleSlug: string,
+  patch: BundlePatch,
+): Promise<{
+  ok: boolean;
+  slug: string;
+  bundleSlug: string;
+  updatedFields: string[];
+}> {
+  const dir = resolveExportDir();
+  const filePath = path.join(dir, `${slug}.md`);
+  const raw = await fs.readFile(filePath, "utf-8");
+  const { entries, body } = parseFrontmatterRaw(raw);
+  const idx = entries.findIndex(([k]) => k === "bundles");
+  if (idx === -1) {
+    throw new Error(`portal "${slug}" has no bundles`);
+  }
+  const bundles = (parseJsonSafe(entries[idx][1]) as Array<
+    Record<string, unknown>
+  >) ?? [];
+  const bIdx = bundles.findIndex((b) => b?.slug === bundleSlug);
+  if (bIdx === -1) {
+    throw new Error(`bundle "${bundleSlug}" not found on portal "${slug}"`);
+  }
+  const updatedFields: string[] = [];
+  if (patch.name != null) {
+    bundles[bIdx].name = patch.name;
+    updatedFields.push("name");
+  }
+  if (patch.finalPriceEur != null) {
+    bundles[bIdx].finalPriceEur = patch.finalPriceEur;
+    updatedFields.push("finalPriceEur");
+  }
+  if (patch.components != null) {
+    bundles[bIdx].components = patch.components;
+    updatedFields.push("components");
+  }
+  entries[idx][1] = JSON.stringify(bundles);
+  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
+  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+  return { ok: true, slug, bundleSlug, updatedFields };
+}
+
+export async function removeBundleFromPortal(
+  slug: string,
+  bundleSlug: string,
+): Promise<{ ok: boolean; slug: string; bundleSlug: string; total: number }> {
+  const dir = resolveExportDir();
+  const filePath = path.join(dir, `${slug}.md`);
+  const raw = await fs.readFile(filePath, "utf-8");
+  const { entries, body } = parseFrontmatterRaw(raw);
+  const idx = entries.findIndex(([k]) => k === "bundles");
+  if (idx === -1) {
+    throw new Error(`portal "${slug}" has no bundles`);
+  }
+  const bundles = (parseJsonSafe(entries[idx][1]) as Array<
+    Record<string, unknown>
+  >) ?? [];
+  const next = bundles.filter((b) => b?.slug !== bundleSlug);
+  if (next.length === bundles.length) {
+    throw new Error(`bundle "${bundleSlug}" not found on portal "${slug}"`);
+  }
+  entries[idx][1] = JSON.stringify(next);
+  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
+  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+  return { ok: true, slug, bundleSlug, total: next.length };
+}
+
 export async function deletePortal(
   slug: string,
 ): Promise<{ ok: boolean; slug: string }> {

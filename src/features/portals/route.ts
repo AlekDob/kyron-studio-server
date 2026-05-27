@@ -1,12 +1,25 @@
 import { Hono } from "hono";
 import { listPortals, getPortal } from "./reader.js";
-import { updatePortal, deletePortal, savePortalLogo } from "./writer.js";
+import { fetchSaleorProducts } from "@/core/saleor/client.js";
+import {
+  updatePortal,
+  deletePortal,
+  savePortalLogo,
+  updatePortalCatalog,
+  updateBundleInPortal,
+  removeBundleFromPortal,
+} from "./writer.js";
 
 export const portalsRoute = new Hono();
 
 portalsRoute.get("/", async (c) => {
   const portals = await listPortals();
   return c.json(portals);
+});
+
+portalsRoute.get("/_catalog", async (c) => {
+  const products = await fetchSaleorProducts();
+  return c.json(products);
 });
 
 portalsRoute.get("/:slug", async (c) => {
@@ -30,6 +43,51 @@ portalsRoute.delete("/:slug", async (c) => {
   if (!portal) return c.json({ error: "not found" }, 404);
   const result = await deletePortal(slug);
   return c.json(result);
+});
+
+portalsRoute.put("/:slug/catalog", async (c) => {
+  const slug = c.req.param("slug");
+  const portal = await getPortal(slug);
+  if (!portal) return c.json({ error: "not found" }, 404);
+  const body = (await c.req.json()) as { visibleSlugs: string[] };
+  if (!Array.isArray(body.visibleSlugs)) {
+    return c.json({ error: "visibleSlugs must be an array" }, 400);
+  }
+  const result = await updatePortalCatalog(slug, body.visibleSlugs);
+  return c.json(result);
+});
+
+portalsRoute.put("/:slug/bundles/:bundleSlug", async (c) => {
+  const slug = c.req.param("slug");
+  const bundleSlug = c.req.param("bundleSlug");
+  const portal = await getPortal(slug);
+  if (!portal) return c.json({ error: "not found" }, 404);
+  const patch = await c.req.json();
+  try {
+    const result = await updateBundleInPortal(slug, bundleSlug, patch);
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : "update failed" },
+      400,
+    );
+  }
+});
+
+portalsRoute.delete("/:slug/bundles/:bundleSlug", async (c) => {
+  const slug = c.req.param("slug");
+  const bundleSlug = c.req.param("bundleSlug");
+  const portal = await getPortal(slug);
+  if (!portal) return c.json({ error: "not found" }, 404);
+  try {
+    const result = await removeBundleFromPortal(slug, bundleSlug);
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : "remove failed" },
+      400,
+    );
+  }
 });
 
 portalsRoute.post("/:slug/logo", async (c) => {
