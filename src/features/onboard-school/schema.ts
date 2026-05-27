@@ -23,6 +23,7 @@ const componentSchema = z.object({
   productSlug: z.string(),
   selection: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("fixed"), variantSku: z.string() }),
+    z.object({ kind: z.literal("variant"), variantSku: z.string() }),
     z.object({ kind: z.literal("by-attribute"), attribute: z.string() }),
   ]),
 });
