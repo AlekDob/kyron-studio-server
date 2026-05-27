@@ -1,11 +1,14 @@
 import { streamText, tool } from "ai";
 import { z } from "zod";
-import { makePayloadClient } from "@/core/payload/client.js";
 import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import { ONBOARD_SCHOOL_SYSTEM_PROMPT } from "./prompt.js";
 import { pendingSchoolSchema } from "./schema.js";
 import { DEMO_CATALOG } from "./demo-catalog.js";
+import {
+  pendingSchoolSlugExists,
+  writePendingSchoolMarkdown,
+} from "./markdown-writer.js";
 
 interface AgentRunOptions {
   tenant: TenantConfig;
@@ -14,7 +17,14 @@ interface AgentRunOptions {
 }
 
 export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
-  const payload = makePayloadClient(opts.tenant, opts.cookie);
+  // Brain: WS04 (decision-015 + diary 2026-05-26) — l'agente onboarding
+  // bypassa Payload e scrive il descriptor .md direttamente su filesystem
+  // via markdown-writer. La collection PendingSchools cms ha schema drift
+  // in dev e il flusso e2e e' lo stesso (Alek copia .md in ecommerce e
+  // lancia seed/onboard-school.ts). `opts.tenant` e `opts.cookie` restano
+  // nella signature per compatibilita' col route SSE.
+  void opts.tenant;
+  void opts.cookie;
   const { model } = await resolveModel("onboard-school", "default");
 
   const result = streamText({
@@ -68,11 +78,11 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       check_slug_availability: tool({
         description:
-          "Verifica se uno slug (kebab-case, es. 'orsoline-san-carlo') e' disponibile per una nuova scuola. Chiama questo PRIMA di proporre uno slug all'utente.",
+          "Verifica se uno slug (kebab-case, es. 'orsoline-san-carlo') e' disponibile per una nuova scuola. Chiama questo PRIMA di proporre uno slug all'utente. La verifica controlla se esiste gia' un descriptor .md nello stesso slug.",
         parameters: z.object({ slug: z.string().min(2) }),
         execute: async ({ slug }) => {
-          const available = await payload.checkSlugAvailability(slug);
-          return { slug, available };
+          const exists = await pendingSchoolSlugExists(slug);
+          return { slug, available: !exists };
         },
       }),
       validate_school_data: tool({
@@ -117,15 +127,18 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       save_pending_school: tool({
         description:
-          "Salva la nuova scuola come PendingSchool in Payload. Chiama SOLO quando hai raccolto tutti i campi obbligatori (slug, nome, indirizzo completo, almeno 1 bundle).",
+          "Salva la nuova scuola come descriptor .md su filesystem. Chiama SOLO quando hai raccolto tutti i campi obbligatori (slug, nome, indirizzo completo, almeno 1 bundle) e l'utente ha confermato esplicitamente.",
         parameters: pendingSchoolSchema,
         execute: async (input) => {
-          const res = await payload.createPendingSchool({
-            ...input,
-            status: "review",
-            collectedBy: "agent",
-          });
-          return { id: res.id, message: "Salvata. Alek la rivedera' in Payload." };
+          const res = await writePendingSchoolMarkdown(input);
+          return {
+            id: res.slug,
+            filePath: res.filePath,
+            overwrote: res.alreadyExisted,
+            message: res.alreadyExisted
+              ? `Aggiornato ${res.filePath} (esisteva gia').`
+              : `Salvato ${res.filePath}. Alek lo committera' in kyron-ecommerce.`,
+          };
         },
       }),
     },

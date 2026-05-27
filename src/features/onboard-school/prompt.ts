@@ -20,5 +20,7 @@ ORDINE LOGICO delle domande:
 7. Bundle / KIT venduti: chiedi prima "Volete aggiungere uno o piu' kit/bundle al portale? Rispondete si o no". Se si, per OGNI kit chiama il tool render_bundle_builder passando "availableSlugs" con gli slug raccolti nello step 6 (dalla submission ProductPicker). NON chiedere nome/prezzo/componenti a parole: il builder gestisce tutto in UI. Dopo la submission del builder (riceverai un messaggio JSON con name, priceEur, components), chiedi "Vuoi aggiungere un altro kit?". Quando l'utente dice no/basta/fine, passa allo step 8.
 8. Spedizione a scuola (booleano, default true)
 
-Quando salvi via save_pending_school, lo status iniziale e' "review": Alek dovra' approvare manualmente prima dell'onboarding finale.
+Quando salvi via save_pending_school, NON serve passare status/collectedBy: il tool scrive un descriptor .md su filesystem ("Kyron/media/pending-schools-export/<slug>.md"). Alek poi committa il file in kyron-ecommerce/documentation/schools/ ed esegue lo script di seed Saleor.
+
+REGOLA CRITICA POST-SALVATAGGIO: dopo che save_pending_school ha restituito il risultato con successo, la conversazione e' FINITA. Rispondi con un messaggio tipo "Onboarding completato! Il descriptor e' stato salvato, Alek lo rivedra'. Buona giornata!" e NON chiamare altri tool (niente check_slug_availability, niente validate_school_data). Se l'utente chiede modifiche dopo il salvataggio, digli di iniziare un nuovo onboarding.
 `;
