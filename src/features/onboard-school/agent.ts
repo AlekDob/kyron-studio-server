@@ -9,6 +9,7 @@ import {
   writePendingSchoolMarkdown,
 } from "./markdown-writer.js";
 import { fetchSaleorProducts } from "@/core/saleor/client.js";
+import { listPortals, getPortal } from "@/features/portals/reader.js";
 
 interface AgentRunOptions {
   tenant: TenantConfig;
@@ -126,6 +127,33 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           return errors.length === 0
             ? { ok: true }
             : { ok: false, errors };
+        },
+      }),
+      list_portals: tool({
+        description:
+          "Elenca tutti i portali scuola configurati con il loro stato (draft, review, approved, onboarded), citta', numero prodotti e kit. Usa questo tool quando l'utente chiede di vedere i portali esistenti, fare un riepilogo, o analizzare lo stato dei portali.",
+        parameters: z.object({}),
+        execute: async () => {
+          const portals = await listPortals();
+          return {
+            portals,
+            total: portals.length,
+            message: portals.length === 0
+              ? "Nessun portale configurato."
+              : `${portals.length} portali trovati.`,
+          };
+        },
+      }),
+      get_portal: tool({
+        description:
+          "Recupera il dettaglio completo di un portale scuola dato il suo slug. Include indirizzo, catalogo prodotti, kit/bundle, branding, spedizione. Il client naviga automaticamente alla pagina dettaglio del portale. Usa questo tool quando l'utente chiede informazioni su un portale specifico.",
+        parameters: z.object({
+          slug: z.string().describe("slug del portale (es. 'martucelli-itc')"),
+        }),
+        execute: async ({ slug }) => {
+          const portal = await getPortal(slug);
+          if (!portal) return { error: `Portale "${slug}" non trovato.` };
+          return { portal };
         },
       }),
       save_pending_school: tool({
