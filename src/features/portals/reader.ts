@@ -91,6 +91,30 @@ export async function listPortals(): Promise<PortalSummary[]> {
   return results;
 }
 
+export interface PortalResolution {
+  portal: PortalDetail | null;
+  candidates: PortalSummary[];
+}
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+export async function resolvePortal(query: string): Promise<PortalResolution> {
+  const direct = await getPortal(query);
+  if (direct) return { portal: direct, candidates: [] };
+  const all = await listPortals();
+  const q = norm(query);
+  const matches = all.filter(
+    (p) => norm(p.slug).includes(q) || norm(p.nome).includes(q),
+  );
+  if (matches.length === 1) {
+    const portal = await getPortal(matches[0].slug);
+    return { portal, candidates: [] };
+  }
+  return { portal: null, candidates: matches };
+}
+
 export async function getPortal(slug: string): Promise<PortalDetail | null> {
   const dir = resolveExportDir();
   const filePath = path.join(dir, `${slug}.md`);

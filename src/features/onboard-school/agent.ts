@@ -9,7 +9,7 @@ import {
   writePendingSchoolMarkdown,
 } from "./markdown-writer.js";
 import { fetchSaleorProducts } from "@/core/saleor/client.js";
-import { listPortals, getPortal } from "@/features/portals/reader.js";
+import { listPortals, resolvePortal } from "@/features/portals/reader.js";
 import {
   updatePortal,
   deletePortal,
@@ -150,14 +150,22 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       get_portal: tool({
         description:
-          "Recupera il dettaglio completo di un portale scuola dato il suo slug. Include indirizzo, catalogo prodotti, kit/bundle, branding, spedizione. Il client naviga automaticamente alla pagina dettaglio del portale. Usa questo tool quando l'utente chiede informazioni su un portale specifico.",
+          "Recupera il dettaglio completo di un portale scuola. Accetta slug esatto (es. 'itc-martinelli-pisa') OPPURE nome (es. 'ITC Martinelli'): il tool fa fuzzy match su entrambi. Include indirizzo, catalogo, kit, branding, spedizione. Usa questo tool quando l'utente chiede informazioni su un portale specifico.",
         parameters: z.object({
-          slug: z.string().describe("slug del portale (es. 'martucelli-itc')"),
+          query: z
+            .string()
+            .describe("slug o nome del portale (fuzzy match case-insensitive)"),
         }),
-        execute: async ({ slug }) => {
-          const portal = await getPortal(slug);
-          if (!portal) return { error: `Portale "${slug}" non trovato.` };
-          return { portal };
+        execute: async ({ query }) => {
+          const { portal, candidates } = await resolvePortal(query);
+          if (portal) return { portal };
+          if (candidates.length > 1) {
+            return {
+              error: `Trovati ${candidates.length} portali che corrispondono a "${query}". Specifica meglio.`,
+              candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+            };
+          }
+          return { error: `Nessun portale trovato per "${query}".` };
         },
       }),
       save_pending_school: tool({
@@ -180,7 +188,7 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
         description:
           "Aggiorna campi specifici di un portale esistente. Passa null per i campi che NON vuoi modificare. Usa SOLO per portali gia' salvati. Prima chiama get_portal per mostrare lo stato attuale, poi chiedi all'utente cosa vuole cambiare.",
         parameters: z.object({
-          slug: z.string().describe("slug del portale da aggiornare"),
+          slug: z.string().describe("slug ESATTO del portale (ottenuto da get_portal/list_portals)"),
           nome: z.string().nullable().describe("nuovo nome (null = invariato)"),
           sitoUfficiale: z.string().nullable().describe("nuovo sito (null = invariato)"),
           codiceMeccanografico: z.string().nullable().describe("nuovo codice MIUR (null = invariato)"),
@@ -193,8 +201,17 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           status: z.enum(["draft", "review", "approved", "onboarded"]).nullable().describe("nuovo stato (null = invariato)"),
         }),
         execute: async ({ slug, ...fields }) => {
-          const portal = await getPortal(slug);
-          if (!portal) return { error: `Portale "${slug}" non trovato.` };
+          const { portal, candidates } = await resolvePortal(slug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${slug}" e' ambiguo (${candidates.length} match). Specifica lo slug esatto.`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${slug}" non trovato.` };
+          }
+          const realSlug = portal.slug;
           const updates: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(fields)) {
             if (v != null) updates[k] = v;
@@ -202,10 +219,10 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           if (Object.keys(updates).length === 0) {
             return { error: "Nessun campo da aggiornare." };
           }
-          const result = await updatePortal(slug, updates);
+          const result = await updatePortal(realSlug, updates);
           return {
             ...result,
-            message: `Aggiornati ${result.updatedFields.join(", ")} per ${slug}.`,
+            message: `Aggiornati ${result.updatedFields.join(", ")} per ${realSlug}.`,
           };
         },
       }),
@@ -217,14 +234,22 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           confirmedName: z.string().describe("nome ESATTO del portale scritto dall'utente come conferma"),
         }),
         execute: async ({ slug, confirmedName }) => {
-          const portal = await getPortal(slug);
-          if (!portal) return { error: `Portale "${slug}" non trovato.` };
+          const { portal, candidates } = await resolvePortal(slug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${slug}" e' ambiguo (${candidates.length} match). Specifica lo slug esatto.`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${slug}" non trovato.` };
+          }
           if (portal.nome.toLowerCase() !== confirmedName.toLowerCase()) {
             return {
               error: `Conferma non valida. Hai scritto "${confirmedName}" ma il portale si chiama "${portal.nome}". Riscrivi il nome esatto.`,
             };
           }
-          const result = await deletePortal(slug);
+          const result = await deletePortal(portal.slug);
           return {
             ...result,
             message: `Portale "${portal.nome}" (${slug}) eliminato definitivamente.`,
