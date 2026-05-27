@@ -33,18 +33,23 @@ portalsRoute.delete("/:slug", async (c) => {
 });
 
 portalsRoute.post("/:slug/logo", async (c) => {
-  const slug = c.req.param("slug");
-  const body = await c.req.parseBody();
-  const file = body["file"];
-  if (!(file instanceof File)) {
-    return c.json({ error: "missing file" }, 400);
+  try {
+    const slug = c.req.param("slug");
+    const body = await c.req.parseBody();
+    const file = body["file"];
+    if (!(file instanceof File)) {
+      return c.json({ error: "missing file" }, 400);
+    }
+    const allowed = ["image/png", "image/jpeg", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      return c.json({ error: "only PNG, JPEG, or WebP allowed" }, 400);
+    }
+    const ext = file.type.split("/")[1] === "jpeg" ? "jpg" : file.type.split("/")[1];
+    const buf = Buffer.from(await file.arrayBuffer());
+    const result = await savePortalLogo(slug, buf, ext);
+    return c.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "upload failed";
+    return c.json({ error: msg }, 500);
   }
-  const allowed = ["image/png", "image/jpeg", "image/webp"];
-  if (!allowed.includes(file.type)) {
-    return c.json({ error: "only PNG, JPEG, or WebP allowed" }, 400);
-  }
-  const ext = file.type.split("/")[1] === "jpeg" ? "jpg" : file.type.split("/")[1];
-  const buf = Buffer.from(await file.arrayBuffer());
-  const result = await savePortalLogo(slug, buf, ext);
-  return c.json(result);
 });

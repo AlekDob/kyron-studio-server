@@ -104,9 +104,10 @@ export async function savePortalLogo(
   await fs.mkdir(logosDir, { recursive: true });
   const filename = `${slug}.${ext}`;
   await fs.writeFile(path.join(logosDir, filename), data);
-  await updatePortal(slug, {} as UpdateFields);
+
   const filePath = path.join(dir, `${slug}.md`);
   try {
+    await fs.access(filePath);
     const raw = await fs.readFile(filePath, "utf-8");
     const { entries, body } = parseFrontmatterRaw(raw);
     const brandIdx = entries.findIndex(([k]) => k === "branding");
@@ -121,7 +122,8 @@ export async function savePortalLogo(
       await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
     }
   } catch {
-    // portal may not exist yet — logo saved standalone
+    // portal .md not yet saved — logo file is standalone, agent will
+    // reference it via branding.logo when calling save_pending_school
   }
   return { ok: true, filename };
 }
