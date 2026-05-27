@@ -13,6 +13,7 @@ import { listPortals, resolvePortal } from "@/features/portals/reader.js";
 import {
   updatePortal,
   deletePortal,
+  addBundleToPortal,
 } from "@/features/portals/writer.js";
 
 interface AgentRunOptions {
@@ -253,6 +254,52 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           return {
             ...result,
             message: `Portale "${portal.nome}" (${slug}) eliminato definitivamente.`,
+          };
+        },
+      }),
+      add_bundle_to_portal: tool({
+        description:
+          "Aggiunge (o sostituisce se lo slug esiste gia') un bundle/kit a un portale ESISTENTE. Usa questo tool dopo la submission del BundleBuilder quando l'utente sta modificando un portale gia' salvato (NON durante l'onboarding di un nuovo portale: in quel caso i bundle vanno in save_pending_school).",
+        parameters: z.object({
+          portalSlug: z.string().describe("slug del portale (es. 'itc-martinelli-pisa')"),
+          bundleSlug: z
+            .string()
+            .describe("slug del bundle kebab-case (es. 'kit-base'). Se gia' esiste verra' sostituito."),
+          name: z.string().describe("nome visibile del kit"),
+          finalPriceEur: z.number().positive().describe("prezzo finale in EUR"),
+          components: z
+            .array(
+              z.object({
+                productSlug: z.string(),
+                variantSku: z.string().describe("SKU della variante; usa il productSlug se la submission non specifica una variante diversa"),
+              }),
+            )
+            .min(1)
+            .describe("componenti del kit dal BundleBuilder"),
+        }),
+        execute: async ({ portalSlug, bundleSlug, name, finalPriceEur, components }) => {
+          const { portal, candidates } = await resolvePortal(portalSlug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${portalSlug}" e' ambiguo (${candidates.length} match). Specifica lo slug esatto.`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${portalSlug}" non trovato.` };
+          }
+          const result = await addBundleToPortal(portal.slug, {
+            slug: bundleSlug,
+            name,
+            finalPriceEur,
+            components: components.map((c) => ({
+              productSlug: c.productSlug,
+              selection: { kind: "variant", variantSku: c.variantSku },
+            })),
+          });
+          return {
+            ...result,
+            message: `Bundle "${name}" aggiunto a ${portal.nome} (${result.total} kit totali).`,
           };
         },
       }),

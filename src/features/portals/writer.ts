@@ -85,6 +85,53 @@ export async function updatePortal(
   return { ok: true, slug, updatedFields };
 }
 
+export interface BundleInput {
+  slug: string;
+  name: string;
+  finalPriceEur: number;
+  components: Array<{
+    productSlug: string;
+    selection:
+      | { kind: "fixed"; variantSku: string }
+      | { kind: "variant"; variantSku: string }
+      | { kind: "by-attribute"; attribute: string };
+  }>;
+}
+
+export async function addBundleToPortal(
+  slug: string,
+  bundle: BundleInput,
+): Promise<{ ok: boolean; slug: string; bundleSlug: string; total: number }> {
+  const dir = resolveExportDir();
+  const filePath = path.join(dir, `${slug}.md`);
+  const raw = await fs.readFile(filePath, "utf-8");
+  const { entries, body } = parseFrontmatterRaw(raw);
+
+  const idx = entries.findIndex(([k]) => k === "bundles");
+  const current =
+    idx !== -1
+      ? ((parseJsonSafe(entries[idx][1]) as unknown[]) ?? [])
+      : [];
+  const exists = current.some(
+    (b) => (b as { slug?: string })?.slug === bundle.slug,
+  );
+  const next = exists
+    ? current.map((b) =>
+        (b as { slug?: string })?.slug === bundle.slug ? bundle : b,
+      )
+    : [...current, bundle];
+
+  if (idx !== -1) {
+    entries[idx][1] = JSON.stringify(next);
+  } else {
+    entries.push(["bundles", JSON.stringify(next)]);
+  }
+
+  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
+  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+  return { ok: true, slug, bundleSlug: bundle.slug, total: next.length };
+}
+
 export async function deletePortal(
   slug: string,
 ): Promise<{ ok: boolean; slug: string }> {
