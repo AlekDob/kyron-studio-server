@@ -4,11 +4,11 @@ import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import { ONBOARD_SCHOOL_SYSTEM_PROMPT } from "./prompt.js";
 import { pendingSchoolSchema } from "./schema.js";
-import { DEMO_CATALOG } from "./demo-catalog.js";
 import {
   pendingSchoolSlugExists,
   writePendingSchoolMarkdown,
 } from "./markdown-writer.js";
+import { fetchSaleorProducts } from "@/core/saleor/client.js";
 
 interface AgentRunOptions {
   tenant: TenantConfig;
@@ -35,21 +35,23 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
     tools: {
       render_product_picker: tool({
         description:
-          "Mostra all'utente un picker visuale del catalogo prodotti scuola da cui selezionare gli accessori visibili sul portale. USA QUESTO TOOL al posto di elencare i prodotti a parole nello step 6 (catalogo). Restituisce un descriptor _ui che il client renderizza come componente interattivo. Dopo il render, attendi il messaggio utente con la selezione (formato JSON {selectedSlugs: [...]}) prima di procedere.",
+          "Mostra all'utente un picker visuale del catalogo prodotti scuola da cui selezionare gli accessori visibili sul portale. I prodotti vengono caricati live dal catalogo Saleor. USA QUESTO TOOL al posto di elencare i prodotti a parole nello step 6 (catalogo). Restituisce un descriptor _ui che il client renderizza come componente interattivo. Dopo il render, attendi il messaggio utente con la selezione (formato JSON {selectedSlugs: [...]}) prima di procedere.",
         parameters: z.object({
           multi: z
             .boolean()
             .describe("true se l'utente puo' selezionare piu' prodotti (default per il catalogo)"),
         }),
-        execute: async ({ multi }) => ({
-          _ui: {
-            component: "ProductPicker",
-            props: { products: DEMO_CATALOG, multi },
-            id: `pick_${Date.now()}`,
-          },
-          message:
-            "Picker renderizzato. Attendi la selezione utente prima di continuare.",
-        }),
+        execute: async ({ multi }) => {
+          const products = await fetchSaleorProducts();
+          return {
+            _ui: {
+              component: "ProductPicker",
+              props: { products, multi },
+              id: `pick_${Date.now()}`,
+            },
+            message: `Picker con ${products.length} prodotti dal catalogo Saleor. Attendi la selezione.`,
+          };
+        },
       }),
       render_bundle_builder: tool({
         description:
@@ -62,7 +64,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             ),
         }),
         execute: async ({ availableSlugs }) => {
-          const products = DEMO_CATALOG.filter((p) =>
+          const all = await fetchSaleorProducts();
+          const products = all.filter((p) =>
             availableSlugs.includes(p.slug),
           );
           return {
