@@ -66,10 +66,33 @@ context: {
   currentUrl?: string;     // URL iframe corrente
   currentPath?: string;    // pathname
   annotationsCount?: number;  // quante annotazioni nel bundle
+  pendingTarget?: {        // Phase 5: elemento selezionato nell'iframe
+    urn: string | null;
+    nodeKind: "text" | "image" | "section" | "page" | "gap";
+    page: string;
+    currentText?: string;
+    assetSrc?: string;
+    selector?: string;
+  };
 }
 ```
 
-L'agente lo riceve nel system prompt preamble per riferimenti pertinenti.
+L'agente lo riceve nel system prompt preamble. Quando `pendingTarget`
+e' presente lo formatta come `ELEMENTO SELEZIONATO` e prende
+page/selector/original.text da li' senza re-interrogare l'utente.
+
+## Phase 5b — capability estese (2026-05-26)
+
+Il prompt e' stato esteso per spingere l'agente a proporre attivamente:
+
+- `replace-image` con `proposal.newAssetHint` libero (mood + soggetto + stile)
+- `restructure` con `proposal.note` in italiano libero (es. "passa da
+  3 a 5 colonne", "masonry asimmetrica", "foto hero a tutta larghezza")
+- `add-section` per blocchi nuovi (testimonial, gallery, stat, FAQ, CTA)
+- Suggerimenti a 2-3 alternative concrete quando l'utente e' vago
+
+Niente DSL per il layout — la `proposal.note` finisce nel .md inviato
+ad Alek che lo legge e interpreta.
 
 ## Vedi anche
 

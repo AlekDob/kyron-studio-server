@@ -4,14 +4,35 @@ import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import { REVIEW_EDITOR_SYSTEM_PROMPT } from "./prompt.js";
 
+interface PendingTarget {
+  urn: string | null;
+  nodeKind: "text" | "image" | "section" | "page" | "gap";
+  page: string;
+  currentText?: string;
+  assetSrc?: string;
+  selector?: string;
+}
+
 interface AgentRunOptions {
   tenant: TenantConfig;
   context?: {
     currentUrl?: string;
     currentPath?: string;
     annotationsCount?: number;
+    pendingTarget?: PendingTarget;
   };
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+}
+
+function formatPendingTarget(t: PendingTarget): string {
+  const parts = [
+    `nodeKind: ${t.nodeKind}`,
+    `page: ${t.page}`,
+    t.selector ? `selector: ${t.selector}` : null,
+    t.currentText ? `testo originale: "${t.currentText}"` : null,
+    t.assetSrc ? `asset: ${t.assetSrc}` : null,
+  ].filter(Boolean);
+  return parts.join("\n");
 }
 
 const annotationKindSchema = z.enum([
@@ -31,6 +52,9 @@ export async function* runReviewEditorAgent(opts: AgentRunOptions) {
     ctx.currentPath ? `Path: ${ctx.currentPath}` : null,
     ctx.annotationsCount !== undefined
       ? `Annotazioni nel bundle: ${ctx.annotationsCount}`
+      : null,
+    ctx.pendingTarget
+      ? `ELEMENTO SELEZIONATO DALL'UTENTE:\n${formatPendingTarget(ctx.pendingTarget)}`
       : null,
   ]
     .filter(Boolean)

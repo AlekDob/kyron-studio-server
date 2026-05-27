@@ -15,6 +15,14 @@ interface ReviewEditorBody {
     currentUrl?: string;
     currentPath?: string;
     annotationsCount?: number;
+    pendingTarget?: {
+      urn: string | null;
+      nodeKind: "text" | "image" | "section" | "page" | "gap";
+      page: string;
+      currentText?: string;
+      assetSrc?: string;
+      selector?: string;
+    };
   };
 }
 
