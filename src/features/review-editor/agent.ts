@@ -4,6 +4,11 @@ import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import { REVIEW_EDITOR_SYSTEM_PROMPT } from "./prompt.js";
 
+interface SectionContext {
+  outline: string;
+  images: Array<{ src: string; alt: string }>;
+}
+
 interface PendingTarget {
   urn: string | null;
   nodeKind: "text" | "image" | "section" | "page" | "gap";
@@ -11,6 +16,7 @@ interface PendingTarget {
   currentText?: string;
   assetSrc?: string;
   selector?: string;
+  sectionContext?: SectionContext;
 }
 
 interface AgentRunOptions {
@@ -24,6 +30,18 @@ interface AgentRunOptions {
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
 }
 
+function formatSectionContext(ctx: SectionContext): string {
+  const parts: string[] = [];
+  if (ctx.outline) parts.push(`Struttura DOM: ${ctx.outline}`);
+  if (ctx.images.length > 0) {
+    const imgs = ctx.images
+      .map((i) => `  - ${i.src}${i.alt ? ` (alt: "${i.alt}")` : ""}`)
+      .join("\n");
+    parts.push(`Immagini nella sezione:\n${imgs}`);
+  }
+  return parts.join("\n");
+}
+
 function formatPendingTarget(t: PendingTarget): string {
   const parts = [
     `nodeKind: ${t.nodeKind}`,
@@ -31,6 +49,7 @@ function formatPendingTarget(t: PendingTarget): string {
     t.selector ? `selector: ${t.selector}` : null,
     t.currentText ? `testo originale: "${t.currentText}"` : null,
     t.assetSrc ? `asset: ${t.assetSrc}` : null,
+    t.sectionContext ? formatSectionContext(t.sectionContext) : null,
   ].filter(Boolean);
   return parts.join("\n");
 }

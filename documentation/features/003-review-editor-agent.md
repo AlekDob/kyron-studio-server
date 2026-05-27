@@ -2,7 +2,7 @@
 type: feature
 project: kyron-studio-server
 created: 2026-05-26
-last_verified: 2026-05-26
+last_verified: 2026-05-27
 tags: [agent, ai-sdk, review, workstream-03]
 ---
 
@@ -80,6 +80,26 @@ context: {
 L'agente lo riceve nel system prompt preamble. Quando `pendingTarget`
 e' presente lo formatta come `ELEMENTO SELEZIONATO` e prende
 page/selector/original.text da li' senza re-interrogare l'utente.
+
+### Phase 6 — sectionContext (2026-05-27)
+
+Il campo `sectionContext` (opzionale) viene aggiunto a `pendingTarget`:
+
+```ts
+sectionContext?: {
+  outline: string;   // DOM outline tree (tag+classi, depth 3)
+  images: Array<{ src: string; alt?: string }>;
+}
+```
+
+Quando presente, `formatSectionContext()` in `agent.ts` lo formatta
+come preamble aggiuntivo nel system prompt:
+- **Struttura DOM**: albero indentato tag+classi della sezione parent
+- **Immagini**: lista `src` + `alt` di tutte le `<img>` nella sezione
+
+Questo da' all'agente visibilita' sulla struttura della pagina attorno
+all'elemento selezionato, migliorando le proposte `restructure` e
+`replace-image`.
 
 ## Phase 5b — capability estese (2026-05-26)
 
