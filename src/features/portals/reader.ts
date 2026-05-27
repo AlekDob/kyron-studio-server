@@ -32,7 +32,7 @@ export interface PortalDetail extends PortalSummary {
 
 const DEFAULT_DIR = "../media/pending-schools-export";
 
-function resolveExportDir(): string {
+export function resolveExportDir(): string {
   const fromEnv = process.env.PENDING_SCHOOLS_EXPORT_DIR;
   if (fromEnv) return path.resolve(fromEnv);
   return path.resolve(process.cwd(), DEFAULT_DIR);

@@ -10,6 +10,10 @@ import {
 } from "./markdown-writer.js";
 import { fetchSaleorProducts } from "@/core/saleor/client.js";
 import { listPortals, getPortal } from "@/features/portals/reader.js";
+import {
+  updatePortal,
+  deletePortal,
+} from "@/features/portals/writer.js";
 
 interface AgentRunOptions {
   tenant: TenantConfig;
@@ -169,6 +173,78 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             message: res.alreadyExisted
               ? `Aggiornato ${res.filePath} (esisteva gia').`
               : `Salvato ${res.filePath}. Alek lo committera' in kyron-ecommerce.`,
+          };
+        },
+      }),
+      update_portal: tool({
+        description:
+          "Aggiorna campi specifici di un portale esistente. Passa null per i campi che NON vuoi modificare. Usa SOLO per portali gia' salvati. Prima chiama get_portal per mostrare lo stato attuale, poi chiedi all'utente cosa vuole cambiare.",
+        parameters: z.object({
+          slug: z.string().describe("slug del portale da aggiornare"),
+          nome: z.string().nullable().describe("nuovo nome (null = invariato)"),
+          sitoUfficiale: z.string().nullable().describe("nuovo sito (null = invariato)"),
+          codiceMeccanografico: z.string().nullable().describe("nuovo codice MIUR (null = invariato)"),
+          streetAddress1: z.string().nullable().describe("nuova via (null = invariata)"),
+          postalCode: z.string().nullable().describe("nuovo CAP (null = invariato)"),
+          city: z.string().nullable().describe("nuova citta' (null = invariata)"),
+          countryArea: z.string().nullable().describe("nuova provincia 2 lettere (null = invariata)"),
+          phone: z.string().nullable().describe("nuovo telefono (null = invariato)"),
+          shipToSchool: z.boolean().nullable().describe("spedizione a scuola (null = invariato)"),
+          status: z.enum(["draft", "review", "approved", "onboarded"]).nullable().describe("nuovo stato (null = invariato)"),
+        }),
+        execute: async ({ slug, ...fields }) => {
+          const portal = await getPortal(slug);
+          if (!portal) return { error: `Portale "${slug}" non trovato.` };
+          const updates: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(fields)) {
+            if (v != null) updates[k] = v;
+          }
+          if (Object.keys(updates).length === 0) {
+            return { error: "Nessun campo da aggiornare." };
+          }
+          const result = await updatePortal(slug, updates);
+          return {
+            ...result,
+            message: `Aggiornati ${result.updatedFields.join(", ")} per ${slug}.`,
+          };
+        },
+      }),
+      delete_portal: tool({
+        description:
+          "Elimina definitivamente un portale. ATTENZIONE: azione irreversibile. L'utente DEVE scrivere il nome esatto del portale come conferma. Se il nome non corrisponde, rifiuta.",
+        parameters: z.object({
+          slug: z.string().describe("slug del portale da eliminare"),
+          confirmedName: z.string().describe("nome ESATTO del portale scritto dall'utente come conferma"),
+        }),
+        execute: async ({ slug, confirmedName }) => {
+          const portal = await getPortal(slug);
+          if (!portal) return { error: `Portale "${slug}" non trovato.` };
+          if (portal.nome.toLowerCase() !== confirmedName.toLowerCase()) {
+            return {
+              error: `Conferma non valida. Hai scritto "${confirmedName}" ma il portale si chiama "${portal.nome}". Riscrivi il nome esatto.`,
+            };
+          }
+          const result = await deletePortal(slug);
+          return {
+            ...result,
+            message: `Portale "${portal.nome}" (${slug}) eliminato definitivamente.`,
+          };
+        },
+      }),
+      render_logo_uploader: tool({
+        description:
+          "Mostra un uploader per il logo della scuola. Il file viene caricato, validato (PNG/JPG/WebP) e salvato. Usa questo tool allo step 5 (logo) al posto di chiedere a parole. Se il portale e' gia' salvato, passa lo slug. Se ancora in fase di onboarding, passa lo slug proposto.",
+        parameters: z.object({
+          slug: z.string().describe("slug del portale (esistente o proposto)"),
+        }),
+        execute: async ({ slug }) => {
+          return {
+            _ui: {
+              component: "LogoUploader",
+              props: { slug },
+              id: `logo_${Date.now()}`,
+            },
+            message: "Uploader logo renderizzato. Attendi il caricamento.",
           };
         },
       }),
