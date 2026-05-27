@@ -120,6 +120,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`
 - Workstream 03: `Kyron/documentation/workstreams/03-studio-standalone.md`
+- Workstream 04 (generative UI): `Kyron/documentation/workstreams/04-studio-generative-ui.md` + decision-015. Onboard agent emette tool `render_product_picker` con descriptor `_ui` parsato dal client.
 - Origine: migrato da `spaceship-server` (2026-05-26, vedi `MIGRATION-FROM-SPACESHIP.md`)
 
 ## Gotcha critici

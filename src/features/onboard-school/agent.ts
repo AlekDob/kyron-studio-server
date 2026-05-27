@@ -5,6 +5,7 @@ import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import { ONBOARD_SCHOOL_SYSTEM_PROMPT } from "./prompt.js";
 import { pendingSchoolSchema } from "./schema.js";
+import { DEMO_CATALOG } from "./demo-catalog.js";
 
 interface AgentRunOptions {
   tenant: TenantConfig;
@@ -20,7 +21,51 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
     model,
     system: ONBOARD_SCHOOL_SYSTEM_PROMPT,
     messages: opts.messages,
+    maxSteps: 8,
     tools: {
+      render_product_picker: tool({
+        description:
+          "Mostra all'utente un picker visuale del catalogo prodotti scuola da cui selezionare gli accessori visibili sul portale. USA QUESTO TOOL al posto di elencare i prodotti a parole nello step 6 (catalogo). Restituisce un descriptor _ui che il client renderizza come componente interattivo. Dopo il render, attendi il messaggio utente con la selezione (formato JSON {selectedSlugs: [...]}) prima di procedere.",
+        parameters: z.object({
+          multi: z
+            .boolean()
+            .describe("true se l'utente puo' selezionare piu' prodotti (default per il catalogo)"),
+        }),
+        execute: async ({ multi }) => ({
+          _ui: {
+            component: "ProductPicker",
+            props: { products: DEMO_CATALOG, multi },
+            id: `pick_${Date.now()}`,
+          },
+          message:
+            "Picker renderizzato. Attendi la selezione utente prima di continuare.",
+        }),
+      }),
+      render_bundle_builder: tool({
+        description:
+          "Mostra all'utente un builder visuale per comporre un KIT/bundle. USA QUESTO TOOL allo step 7 al posto di chiedere componenti/prezzo a parole. Passa gli `availableSlugs` raccolti nello step 6 (selectedSlugs dalla submission ProductPicker): il builder mostra solo i prodotti gia' selezionati dall'utente come componenti possibili del kit. L'utente sceglie nome, prezzo finale, e quali prodotti compongono il kit. Dopo il render, attendi il messaggio utente con la submission (formato JSON {name, priceEur, components}) prima di procedere.",
+        parameters: z.object({
+          availableSlugs: z
+            .array(z.string())
+            .describe(
+              "Slug dei prodotti gia' selezionati dall'utente nello step 6 (catalogo). Il builder mostra solo questi come componenti possibili.",
+            ),
+        }),
+        execute: async ({ availableSlugs }) => {
+          const products = DEMO_CATALOG.filter((p) =>
+            availableSlugs.includes(p.slug),
+          );
+          return {
+            _ui: {
+              component: "BundleBuilder",
+              props: { products },
+              id: `bundle_${Date.now()}`,
+            },
+            message:
+              "Bundle builder renderizzato. Attendi la submission utente prima di continuare.",
+          };
+        },
+      }),
       check_slug_availability: tool({
         description:
           "Verifica se uno slug (kebab-case, es. 'orsoline-san-carlo') e' disponibile per una nuova scuola. Chiama questo PRIMA di proporre uno slug all'utente.",
