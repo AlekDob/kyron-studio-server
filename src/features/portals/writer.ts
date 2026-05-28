@@ -1,6 +1,12 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { resolveExportDir } from "./reader.js";
+import { findPortalDoc } from "./reader.js";
+import { getPortalsGateway, PORTALS_COLLECTION } from "./gateway.js";
+
+// Brain: decision-016 — writer scrive in Payload via gateway REST.
+// Conservata la firma pubblica del vecchio writer filesystem. Le mutation
+// che toccano array (bundles) o group (schoolAddress/catalog) leggono il
+// doc, applicano il patch in memoria, e fanno PATCH dell'intero doc. Se
+// la full-doc validation Payload fallisce, switch a raw SQL (vedi GOTCHA
+// in cms/CLAUDE.md, pattern lib/studio/data/raw-write.ts).
 
 export interface UpdateFields {
   nome?: string;
@@ -15,73 +21,57 @@ export interface UpdateFields {
   status?: string;
 }
 
-function parseFrontmatterRaw(raw: string): {
-  entries: Array<[string, string]>;
-  body: string;
-} {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return { entries: [], body: raw };
-  const entries: Array<[string, string]> = [];
-  for (const line of match[1].split("\n")) {
-    const idx = line.indexOf(": ");
-    if (idx === -1) continue;
-    entries.push([line.slice(0, idx).trim(), line.slice(idx + 2).trim()]);
-  }
-  return { entries, body: match[2] };
-}
+const ADDRESS_FIELDS = new Set([
+  "streetAddress1",
+  "postalCode",
+  "city",
+  "countryArea",
+  "phone",
+  "firstName",
+  "lastName",
+  "companyName",
+  "country",
+]);
 
-function parseJsonSafe(val: string): unknown {
-  try {
-    return JSON.parse(val);
-  } catch {
-    return val;
-  }
+async function requirePortalId(slug: string): Promise<string> {
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
+  return String(doc.id);
 }
 
 export async function updatePortal(
   slug: string,
   updates: UpdateFields,
 ): Promise<{ ok: boolean; slug: string; updatedFields: string[] }> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  const raw = await fs.readFile(filePath, "utf-8");
-  const { entries, body } = parseFrontmatterRaw(raw);
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
 
-  const addressFields = [
-    "streetAddress1",
-    "postalCode",
-    "city",
-    "countryArea",
-    "phone",
-  ] as const;
+  const patch: Record<string, unknown> = {};
   const updatedFields: string[] = [];
+  const currentAddress =
+    (doc.schoolAddress as Record<string, unknown>) ?? {};
+  const nextAddress: Record<string, unknown> = { ...currentAddress };
+  let addressTouched = false;
 
   for (const [key, val] of Object.entries(updates)) {
     if (val == null) continue;
-    if (addressFields.includes(key as (typeof addressFields)[number])) {
-      const addrIdx = entries.findIndex(([k]) => k === "schoolAddress");
-      if (addrIdx !== -1) {
-        const addr = parseJsonSafe(entries[addrIdx][1]) as Record<
-          string,
-          unknown
-        >;
-        addr[key] = val;
-        entries[addrIdx][1] = JSON.stringify(addr);
-        updatedFields.push(`schoolAddress.${key}`);
-      }
+    if (ADDRESS_FIELDS.has(key)) {
+      nextAddress[key] = val;
+      addressTouched = true;
+      updatedFields.push(`schoolAddress.${key}`);
     } else {
-      const idx = entries.findIndex(([k]) => k === key);
-      if (idx !== -1) {
-        entries[idx][1] = JSON.stringify(val);
-      } else {
-        entries.push([key, JSON.stringify(val)]);
-      }
+      patch[key] = val;
       updatedFields.push(key);
     }
   }
+  if (addressTouched) patch.schoolAddress = nextAddress;
 
-  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
-  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+  if (Object.keys(patch).length === 0) {
+    return { ok: true, slug, updatedFields: [] };
+  }
+
+  const gw = getPortalsGateway();
+  await gw.update(PORTALS_COLLECTION, String(doc.id), patch);
   return { ok: true, slug, updatedFields };
 }
 
@@ -98,37 +88,42 @@ export interface BundleInput {
   }>;
 }
 
+function readBundles(doc: Record<string, unknown>): Array<Record<string, unknown>> {
+  const raw = doc.bundles;
+  if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function writableBundle(b: Record<string, unknown>): Record<string, unknown> {
+  // Drop Payload-managed id when overwriting array: il PATCH array totale
+  // crea nuove righe; gli id originali non vanno riproposti.
+  const { id: _id, ...rest } = b;
+  void _id;
+  return rest;
+}
+
 export async function addBundleToPortal(
   slug: string,
   bundle: BundleInput,
 ): Promise<{ ok: boolean; slug: string; bundleSlug: string; total: number }> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  const raw = await fs.readFile(filePath, "utf-8");
-  const { entries, body } = parseFrontmatterRaw(raw);
-
-  const idx = entries.findIndex(([k]) => k === "bundles");
-  const current =
-    idx !== -1
-      ? ((parseJsonSafe(entries[idx][1]) as unknown[]) ?? [])
-      : [];
-  const exists = current.some(
-    (b) => (b as { slug?: string })?.slug === bundle.slug,
-  );
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
+  const current = readBundles(doc);
+  const exists = current.some((b) => b?.slug === bundle.slug);
   const next = exists
-    ? current.map((b) =>
-        (b as { slug?: string })?.slug === bundle.slug ? bundle : b,
-      )
-    : [...current, bundle];
+    ? current.map((b) => (b?.slug === bundle.slug ? bundle : writableBundle(b)))
+    : [...current.map(writableBundle), bundle];
 
-  if (idx !== -1) {
-    entries[idx][1] = JSON.stringify(next);
-  } else {
-    entries.push(["bundles", JSON.stringify(next)]);
-  }
-
-  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
-  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+  const gw = getPortalsGateway();
+  await gw.update(PORTALS_COLLECTION, String(doc.id), { bundles: next });
   return { ok: true, slug, bundleSlug: bundle.slug, total: next.length };
 }
 
@@ -136,30 +131,21 @@ export async function updatePortalCatalog(
   slug: string,
   visibleSlugs: string[],
 ): Promise<{ ok: boolean; slug: string; total: number }> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  const raw = await fs.readFile(filePath, "utf-8");
-  const { entries, body } = parseFrontmatterRaw(raw);
-  const idx = entries.findIndex(([k]) => k === "catalog");
-  const current =
-    idx !== -1
-      ? ((parseJsonSafe(entries[idx][1]) as {
-          visibleSlugs?: string[];
-          hiddenSlugs?: string[];
-        }) ?? {})
-      : {};
-  const next = {
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
+  const currentCatalog = (doc.catalog as {
+    visibleSlugs?: unknown;
+    hiddenSlugs?: unknown;
+  }) ?? {};
+  const nextCatalog = {
     visibleSlugs: [...new Set(visibleSlugs)],
-    hiddenSlugs: current.hiddenSlugs ?? [],
+    hiddenSlugs: Array.isArray(currentCatalog.hiddenSlugs)
+      ? (currentCatalog.hiddenSlugs as string[])
+      : [],
   };
-  if (idx !== -1) {
-    entries[idx][1] = JSON.stringify(next);
-  } else {
-    entries.push(["catalog", JSON.stringify(next)]);
-  }
-  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
-  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
-  return { ok: true, slug, total: next.visibleSlugs.length };
+  const gw = getPortalsGateway();
+  await gw.update(PORTALS_COLLECTION, String(doc.id), { catalog: nextCatalog });
+  return { ok: true, slug, total: nextCatalog.visibleSlugs.length };
 }
 
 export interface BundlePatch {
@@ -178,37 +164,30 @@ export async function updateBundleInPortal(
   bundleSlug: string;
   updatedFields: string[];
 }> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  const raw = await fs.readFile(filePath, "utf-8");
-  const { entries, body } = parseFrontmatterRaw(raw);
-  const idx = entries.findIndex(([k]) => k === "bundles");
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
+  const bundles = readBundles(doc);
+  const idx = bundles.findIndex((b) => b?.slug === bundleSlug);
   if (idx === -1) {
-    throw new Error(`portal "${slug}" has no bundles`);
-  }
-  const bundles = (parseJsonSafe(entries[idx][1]) as Array<
-    Record<string, unknown>
-  >) ?? [];
-  const bIdx = bundles.findIndex((b) => b?.slug === bundleSlug);
-  if (bIdx === -1) {
     throw new Error(`bundle "${bundleSlug}" not found on portal "${slug}"`);
   }
   const updatedFields: string[] = [];
+  const next = bundles.map(writableBundle);
   if (patch.name != null) {
-    bundles[bIdx].name = patch.name;
+    next[idx].name = patch.name;
     updatedFields.push("name");
   }
   if (patch.finalPriceEur != null) {
-    bundles[bIdx].finalPriceEur = patch.finalPriceEur;
+    next[idx].finalPriceEur = patch.finalPriceEur;
     updatedFields.push("finalPriceEur");
   }
   if (patch.components != null) {
-    bundles[bIdx].components = patch.components;
+    next[idx].components = patch.components;
     updatedFields.push("components");
   }
-  entries[idx][1] = JSON.stringify(bundles);
-  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
-  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+
+  const gw = getPortalsGateway();
+  await gw.update(PORTALS_COLLECTION, String(doc.id), { bundles: next });
   return { ok: true, slug, bundleSlug, updatedFields };
 }
 
@@ -216,66 +195,31 @@ export async function removeBundleFromPortal(
   slug: string,
   bundleSlug: string,
 ): Promise<{ ok: boolean; slug: string; bundleSlug: string; total: number }> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  const raw = await fs.readFile(filePath, "utf-8");
-  const { entries, body } = parseFrontmatterRaw(raw);
-  const idx = entries.findIndex(([k]) => k === "bundles");
-  if (idx === -1) {
-    throw new Error(`portal "${slug}" has no bundles`);
-  }
-  const bundles = (parseJsonSafe(entries[idx][1]) as Array<
-    Record<string, unknown>
-  >) ?? [];
-  const next = bundles.filter((b) => b?.slug !== bundleSlug);
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
+  const bundles = readBundles(doc);
+  const next = bundles
+    .filter((b) => b?.slug !== bundleSlug)
+    .map(writableBundle);
   if (next.length === bundles.length) {
     throw new Error(`bundle "${bundleSlug}" not found on portal "${slug}"`);
   }
-  entries[idx][1] = JSON.stringify(next);
-  const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
-  await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
+
+  const gw = getPortalsGateway();
+  await gw.update(PORTALS_COLLECTION, String(doc.id), { bundles: next });
   return { ok: true, slug, bundleSlug, total: next.length };
 }
 
 export async function deletePortal(
   slug: string,
 ): Promise<{ ok: boolean; slug: string }> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  await fs.unlink(filePath);
+  const id = await requirePortalId(slug);
+  const gw = getPortalsGateway();
+  await gw.remove(PORTALS_COLLECTION, id);
   return { ok: true, slug };
 }
 
-export async function savePortalLogo(
-  slug: string,
-  data: Buffer,
-  ext: string,
-): Promise<{ ok: boolean; filename: string }> {
-  const dir = resolveExportDir();
-  const logosDir = path.join(dir, "logos");
-  await fs.mkdir(logosDir, { recursive: true });
-  const filename = `${slug}.${ext}`;
-  await fs.writeFile(path.join(logosDir, filename), data);
-
-  const filePath = path.join(dir, `${slug}.md`);
-  try {
-    await fs.access(filePath);
-    const raw = await fs.readFile(filePath, "utf-8");
-    const { entries, body } = parseFrontmatterRaw(raw);
-    const brandIdx = entries.findIndex(([k]) => k === "branding");
-    if (brandIdx !== -1) {
-      const branding = parseJsonSafe(entries[brandIdx][1]) as Record<
-        string,
-        unknown
-      >;
-      branding.logo = `logos/${filename}`;
-      entries[brandIdx][1] = JSON.stringify(branding);
-      const fm = entries.map(([k, v]) => `${k}: ${v}`).join("\n");
-      await fs.writeFile(filePath, `---\n${fm}\n---\n${body}`, "utf-8");
-    }
-  } catch {
-    // portal .md not yet saved — logo file is standalone, agent will
-    // reference it via branding.logo when calling save_pending_school
-  }
-  return { ok: true, filename };
-}
+// Stub: la nuova savePortalLogo (Fase 5) carica il file in Payload Media
+// e linka l'ID al branding.logo del PendingSchool. Implementata in
+// `./logo.ts` per separare la complessita' multipart upload.
+export { savePortalLogo } from "./logo.js";

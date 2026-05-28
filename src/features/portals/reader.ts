@@ -1,5 +1,10 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { getPortalsGateway, PORTALS_COLLECTION } from "./gateway.js";
+
+// Brain: decision-016 — portali su Payload collection `pending-schools`.
+// reader.ts traduce i doc Payload nelle interfacce PortalSummary/PortalDetail
+// che il frontend (PortalsList, PortalDetail) e l'agente consumano.
+// La firma delle funzioni public (listPortals, getPortal, resolvePortal)
+// resta identica al vecchio reader filesystem per non rompere i call site.
 
 export interface PortalSummary {
   slug: string;
@@ -14,6 +19,7 @@ export interface PortalSummary {
 }
 
 export interface PortalDetail extends PortalSummary {
+  id: string;
   sitoUfficiale: string;
   codiceMeccanografico: string;
   schoolAddress: Record<string, unknown>;
@@ -30,65 +36,93 @@ export interface PortalDetail extends PortalSummary {
   }>;
 }
 
-const DEFAULT_DIR = "../media/pending-schools-export";
-
-export function resolveExportDir(): string {
-  const fromEnv = process.env.PENDING_SCHOOLS_EXPORT_DIR;
-  if (fromEnv) return path.resolve(fromEnv);
-  return path.resolve(process.cwd(), DEFAULT_DIR);
-}
-
-function parseFrontmatter(raw: string): Record<string, unknown> {
-  const match = raw.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return {};
-  const result: Record<string, unknown> = {};
-  for (const line of match[1].split("\n")) {
-    const idx = line.indexOf(": ");
-    if (idx === -1) continue;
-    const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 2).trim();
+function asArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
     try {
-      result[key] = JSON.parse(val);
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
-      result[key] = val;
+      return [];
     }
   }
-  return result;
+  return [];
 }
 
-function toSummary(data: Record<string, unknown>): PortalSummary {
-  const addr = (data.schoolAddress as Record<string, string>) ?? {};
-  const catalog = (data.catalog as { visibleSlugs?: string[] }) ?? {};
-  const bundles = (data.bundles as unknown[]) ?? [];
+function asStringArray(value: unknown): string[] {
+  return asArray(value).map((v) => String(v));
+}
+
+function toSummary(doc: Record<string, unknown>): PortalSummary {
+  const addr = (doc.schoolAddress as Record<string, string>) ?? {};
+  const catalog = (doc.catalog as { visibleSlugs?: unknown }) ?? {};
+  const bundles = asArray(doc.bundles);
   return {
-    slug: String(data.slug ?? ""),
-    nome: String(data.nome ?? ""),
+    slug: String(doc.slug ?? ""),
+    nome: String(doc.nome ?? ""),
     city: String(addr.city ?? ""),
     countryArea: String(addr.countryArea ?? ""),
-    status: String(data.status ?? "draft"),
-    collectedBy: String(data.collectedBy ?? "agent"),
-    collectedAt: String(data.collectedAt ?? ""),
+    status: String(doc.status ?? "draft"),
+    collectedBy: String(doc.collectedBy ?? "agent"),
+    collectedAt: String(doc.createdAt ?? doc.updatedAt ?? ""),
     bundleCount: bundles.length,
-    productCount: catalog.visibleSlugs?.length ?? 0,
+    productCount: asStringArray(catalog.visibleSlugs).length,
+  };
+}
+
+function toDetail(doc: Record<string, unknown>): PortalDetail {
+  const summary = toSummary(doc);
+  const catalogRaw = (doc.catalog as Record<string, unknown>) ?? {};
+  const bundlesRaw = asArray(doc.bundles) as Array<Record<string, unknown>>;
+  return {
+    ...summary,
+    id: String(doc.id ?? ""),
+    sitoUfficiale: String(doc.sitoUfficiale ?? ""),
+    codiceMeccanografico: String(doc.codiceMeccanografico ?? ""),
+    schoolAddress: (doc.schoolAddress as Record<string, unknown>) ?? {},
+    branding: (doc.branding as Record<string, unknown>) ?? {},
+    shipToSchool: Boolean(doc.shipToSchool),
+    shippingMethodLabel: String(doc.shippingMethodLabel ?? ""),
+    shippingPriceEur: Number(doc.shippingPriceEur ?? 0),
+    catalog: {
+      visibleSlugs: asStringArray(catalogRaw.visibleSlugs),
+      hiddenSlugs: asStringArray(catalogRaw.hiddenSlugs),
+    },
+    bundles: bundlesRaw.map((b) => ({
+      slug: String(b.slug ?? ""),
+      name: String(b.name ?? ""),
+      finalPriceEur: Number(b.finalPriceEur ?? 0),
+      components: asArray(b.components) as Array<Record<string, unknown>>,
+    })),
   };
 }
 
 export async function listPortals(): Promise<PortalSummary[]> {
-  const dir = resolveExportDir();
-  let files: string[];
-  try {
-    files = await fs.readdir(dir);
-  } catch {
-    return [];
-  }
-  const mdFiles = files.filter((f) => f.endsWith(".md")).sort();
-  const results: PortalSummary[] = [];
-  for (const file of mdFiles) {
-    const raw = await fs.readFile(path.join(dir, file), "utf-8");
-    const data = parseFrontmatter(raw);
-    if (data.slug) results.push(toSummary(data));
-  }
-  return results;
+  const gw = getPortalsGateway();
+  const res = await gw.list(PORTALS_COLLECTION, {
+    limit: 200,
+    sort: "-updatedAt",
+    depth: 1,
+  });
+  return res.data.map(toSummary);
+}
+
+export async function getPortal(slug: string): Promise<PortalDetail | null> {
+  const doc = await findPortalDoc(slug);
+  return doc ? toDetail(doc) : null;
+}
+
+// Internal: ritorna il raw doc Payload (con id) per poter fare update/delete.
+export async function findPortalDoc(
+  slug: string,
+): Promise<Record<string, unknown> | null> {
+  const gw = getPortalsGateway();
+  const res = await gw.list(PORTALS_COLLECTION, {
+    where: { slug: { equals: slug } },
+    limit: 1,
+    depth: 1,
+  });
+  return res.data[0] ?? null;
 }
 
 export interface PortalResolution {
@@ -113,33 +147,4 @@ export async function resolvePortal(query: string): Promise<PortalResolution> {
     return { portal, candidates: [] };
   }
   return { portal: null, candidates: matches };
-}
-
-export async function getPortal(slug: string): Promise<PortalDetail | null> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${slug}.md`);
-  let raw: string;
-  try {
-    raw = await fs.readFile(filePath, "utf-8");
-  } catch {
-    return null;
-  }
-  const data = parseFrontmatter(raw);
-  if (!data.slug) return null;
-  const summary = toSummary(data);
-  return {
-    ...summary,
-    sitoUfficiale: String(data.sitoUfficiale ?? ""),
-    codiceMeccanografico: String(data.codiceMeccanografico ?? ""),
-    schoolAddress: (data.schoolAddress as Record<string, unknown>) ?? {},
-    branding: (data.branding as Record<string, unknown>) ?? {},
-    shipToSchool: Boolean(data.shipToSchool),
-    shippingMethodLabel: String(data.shippingMethodLabel ?? ""),
-    shippingPriceEur: Number(data.shippingPriceEur ?? 0),
-    catalog: (data.catalog as PortalDetail["catalog"]) ?? {
-      visibleSlugs: [],
-      hiddenSlugs: [],
-    },
-    bundles: (data.bundles as PortalDetail["bundles"]) ?? [],
-  };
 }

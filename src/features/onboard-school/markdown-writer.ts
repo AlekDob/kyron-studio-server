@@ -1,16 +1,15 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { PendingSchool } from "./schema.js";
+import {
+  getPortalsGateway,
+  PORTALS_COLLECTION,
+} from "@/features/portals/gateway.js";
+import { findPortalDoc } from "@/features/portals/reader.js";
 
-// Brain: WS04 — l'agente onboarding scrive un .md descriptor direttamente
-// su filesystem, bypassando Payload (collection PendingSchools ha schema
-// drift in dev e POST/GET ritornano 500). Lo schema del .md e' identico
-// a quello prodotto dall'hook cms/payload/hooks/exportPendingSchoolMarkdown
-// quando una PendingSchool passa a status=approved — cosi' il flusso
-// downstream (Alek copia in kyron-ecommerce/documentation/schools/ ed
-// esegue seed/onboard-school.ts --school <slug>) rimane invariato.
-
-const DEFAULT_DIR = "../media/pending-schools-export";
+// Brain: decision-016 — l'agente onboarding salva la nuova scuola direttamente
+// in Payload (collection pending-schools) via gateway REST. La firma esposta
+// (pendingSchoolSlugExists / writePendingSchoolMarkdown) e' invariata per
+// non rompere agent.ts. Il nome del file resta "markdown-writer" per minimo
+// diff su agent.ts; semantica: Payload writer.
 
 export interface WriteResult {
   slug: string;
@@ -18,75 +17,63 @@ export interface WriteResult {
   alreadyExisted: boolean;
 }
 
-function resolveExportDir(): string {
-  const fromEnv = process.env.PENDING_SCHOOLS_EXPORT_DIR;
-  if (fromEnv) return path.resolve(fromEnv);
-  return path.resolve(process.cwd(), DEFAULT_DIR);
+export async function pendingSchoolSlugExists(
+  slug: string,
+): Promise<boolean> {
+  const doc = await findPortalDoc(slug);
+  return Boolean(doc);
 }
 
-function toFrontmatter(doc: PendingSchool): string {
-  const data = {
+function toPayloadDoc(doc: PendingSchool) {
+  return {
     slug: doc.slug,
     nome: doc.nome,
-    sitoUfficiale: doc.sitoUfficiale ?? "TBD",
+    status: "draft",
+    collectedBy: "agent",
+    sitoUfficiale: doc.sitoUfficiale ?? "",
     codiceMeccanografico: doc.codiceMeccanografico ?? "TBD",
-    schoolAddress: doc.schoolAddress,
-    branding: { nome: doc.branding.nome, logo: doc.branding.logo ?? "TBD" },
+    schoolAddress: {
+      ...doc.schoolAddress,
+      phone: doc.schoolAddress.phone ?? "",
+    },
+    branding: {
+      nome: doc.branding.nome,
+      // logo nullable nello schema agente; in Payload e' upload->media (ID).
+      // L'agente passa null in fase di save_pending_school. Il logo viene
+      // caricato dopo via savePortalLogo (Fase 5 — collection Media).
+    },
     shipToSchool: doc.shipToSchool,
     shippingMethodLabel: doc.shippingMethodLabel,
     shippingPriceEur: doc.shippingPriceEur,
     catalog: doc.catalog,
     bundles: doc.bundles,
-    status: "draft",
   };
-  return Object.entries(data)
-    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-    .join("\n");
-}
-
-function toMarkdown(doc: PendingSchool, collectedAt: string): string {
-  return `---
-${toFrontmatter(doc)}
-collectedBy: agent
-collectedAt: ${JSON.stringify(collectedAt)}
----
-
-# ${doc.nome}
-
-Descriptor scuola raccolto dall'agente di onboarding (Studio).
-
-Per onboardare la scuola sul portale e-commerce:
-
-\`\`\`bash
-cp ${doc.slug}.md ~/Desktop/Dev/Personal/Kyron/ecommerce/documentation/schools/${doc.slug}.md
-cd ~/Desktop/Dev/Personal/Kyron/ecommerce
-npx tsx seed/onboard-school.ts --school ${doc.slug}
-\`\`\`
-`;
-}
-
-export async function pendingSchoolSlugExists(
-  slug: string,
-): Promise<boolean> {
-  const filePath = path.join(resolveExportDir(), `${slug}.md`);
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export async function writePendingSchoolMarkdown(
   doc: PendingSchool,
 ): Promise<WriteResult> {
-  const dir = resolveExportDir();
-  const filePath = path.join(dir, `${doc.slug}.md`);
-  const alreadyExisted = await pendingSchoolSlugExists(doc.slug);
+  const gw = getPortalsGateway();
+  const existing = await findPortalDoc(doc.slug);
+  const payloadDoc = toPayloadDoc(doc);
 
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filePath, toMarkdown(doc, new Date().toISOString()), "utf-8");
+  if (existing) {
+    await gw.update(PORTALS_COLLECTION, String(existing.id), payloadDoc);
+    console.log(`[onboard] updated pending-schools/${doc.slug} (id=${existing.id})`);
+    return {
+      slug: doc.slug,
+      filePath: `payload://${PORTALS_COLLECTION}/${doc.slug}`,
+      alreadyExisted: true,
+    };
+  }
 
-  console.log(`[onboard] wrote ${filePath} (overwrite=${alreadyExisted})`);
-  return { slug: doc.slug, filePath, alreadyExisted };
+  const res = await gw.create(PORTALS_COLLECTION, payloadDoc);
+  console.log(
+    `[onboard] created pending-schools/${doc.slug} (id=${res.data.id})`,
+  );
+  return {
+    slug: doc.slug,
+    filePath: `payload://${PORTALS_COLLECTION}/${doc.slug}`,
+    alreadyExisted: false,
+  };
 }

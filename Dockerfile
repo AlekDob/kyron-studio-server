@@ -19,9 +19,8 @@ ENV PORT=8790
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/dist ./dist
-# Persistent data dir — mount a Coolify volume here:
-# PENDING_SCHOOLS_EXPORT_DIR=/data/portals (env var in Coolify)
-# Volume: /data/portals → host persistent directory
-RUN mkdir -p /data/portals/logos
+# decision-016: i portali vivono in Payload (collection pending-schools).
+# Nessun volume persistente richiesto a livello di studio-server — la
+# persistenza e' delegata al Postgres del cms.
 EXPOSE 8790
 CMD ["node", "dist/index.js"]

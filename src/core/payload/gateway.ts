@@ -55,6 +55,14 @@ function buildListUrl(base: string, slug: string, p: ListParams): string {
       url.searchParams.set(`where[or][${i}][${field}][contains]`, p.q!);
     });
   }
+  if (p.where) {
+    for (const [field, ops] of Object.entries(p.where)) {
+      if (!ops || typeof ops !== "object") continue;
+      for (const [op, value] of Object.entries(ops as Record<string, unknown>)) {
+        url.searchParams.set(`where[${field}][${op}]`, String(value));
+      }
+    }
+  }
   return url.toString();
 }
 
