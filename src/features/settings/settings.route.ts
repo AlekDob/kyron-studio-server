@@ -11,8 +11,15 @@ import {
 } from "./store.js";
 import { testProviderConnection } from "./provider-test.js";
 import { listProviderModels } from "./list-models.js";
+import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 
 export const settingsRoute = new Hono();
+
+// Brain: gotcha-docker-publish-bypasses-firewall (security audit 2026-06-03).
+// /settings configura provider AI + model routing ed esegue test che CONSUMANO
+// la API key: va protetto come collections/data-editor. Prima era pubblico su
+// studio-server.kyronedu.it (live). Richiede sessione Studio (cookie kyron-rev).
+settingsRoute.use("*", studioAuthMiddleware);
 
 const modelConfigSchema = z.object({
   provider: z.enum(PROVIDER_IDS),
