@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import { ONBOARD_SCHOOL_SYSTEM_PROMPT } from "./prompt.js";
-import { pendingSchoolSchema } from "./schema.js";
+import { pendingSchoolInputSchema, toCanonicalPendingSchool } from "./schema.js";
 import {
   pendingSchoolSlugExists,
   writePendingSchoolMarkdown,
@@ -174,10 +174,12 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       save_pending_school: tool({
         description:
-          "Salva la nuova scuola come descriptor .md su filesystem. Chiama SOLO quando hai raccolto tutti i campi obbligatori (slug, nome, indirizzo completo, almeno 1 bundle) e l'utente ha confermato esplicitamente.",
-        parameters: pendingSchoolSchema,
+          "Salva la nuova scuola in Payload (collection pending-schools). I componenti di ogni bundle sono PIATTI: { productSlug, variantSku }. Chiama SOLO quando hai raccolto tutti i campi obbligatori (slug, nome, indirizzo completo, almeno 1 bundle) e l'utente ha confermato esplicitamente.",
+        parameters: pendingSchoolInputSchema,
         execute: async (input) => {
-          const res = await writePendingSchoolMarkdown(input);
+          const res = await writePendingSchoolMarkdown(
+            toCanonicalPendingSchool(input),
+          );
           return {
             id: res.slug,
             filePath: res.filePath,

@@ -56,3 +56,42 @@ export const pendingSchoolSchema = z.object({
 });
 
 export type PendingSchool = z.infer<typeof pendingSchoolSchema>;
+
+// Brain: i tool AI ricevono i componenti bundle in forma PIATTA {productSlug,
+// variantSku}, cosi' l'LLM non deve mai emettere il discriminatore `selection.kind`
+// (bug: l'agente passava kind:"product" inesistente -> invalid_union_discriminator).
+// La normalizzazione a `selection:{kind:"variant"}` avviene server-side, coerente
+// con add_bundle_to_portal. pendingSchoolSchema resta la forma canonica del writer.
+const inputComponentSchema = z.object({
+  productSlug: z.string(),
+  variantSku: z.string(),
+});
+
+const inputBundleSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  finalPriceEur: z.number().positive(),
+  components: z.array(inputComponentSchema).min(1),
+});
+
+export const pendingSchoolInputSchema = pendingSchoolSchema.extend({
+  bundles: z.array(inputBundleSchema),
+});
+
+export type PendingSchoolInput = z.infer<typeof pendingSchoolInputSchema>;
+
+// Mappa la forma piatta dei tool AI alla forma canonica con `selection`.
+export function toCanonicalPendingSchool(
+  input: PendingSchoolInput,
+): PendingSchool {
+  return {
+    ...input,
+    bundles: input.bundles.map((bundle) => ({
+      ...bundle,
+      components: bundle.components.map((c) => ({
+        productSlug: c.productSlug,
+        selection: { kind: "variant" as const, variantSku: c.variantSku },
+      })),
+    })),
+  };
+}
