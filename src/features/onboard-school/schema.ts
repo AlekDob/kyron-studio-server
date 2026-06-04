@@ -28,6 +28,12 @@ const componentSchema = z.object({
   ]),
 });
 
+const productDiscountSchema = z.object({
+  slug: z.string(),
+  kind: z.enum(["percent", "eur"]),
+  value: z.number(),
+});
+
 const bundleSchema = z.object({
   slug: z.string(),
   name: z.string(),
@@ -51,6 +57,10 @@ export const pendingSchoolSchema = z.object({
   catalog: z.object({
     visibleSlugs: z.array(z.string()),
     hiddenSlugs: z.array(z.string()),
+    // Sconto per-prodotto (additivo, non rompe visibleSlugs). percent = % di
+    // sconto (0-100); eur = prezzo finale scontato in EUR. Solo prodotti con
+    // sconto impostato. null/[] quando nessuno. Applicato su Saleor in onboarding.
+    productDiscounts: z.array(productDiscountSchema).nullable(),
   }),
   bundles: z.array(bundleSchema),
 });
