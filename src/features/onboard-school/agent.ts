@@ -25,6 +25,37 @@ interface AgentRunOptions {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
+interface ProductDiscount {
+  slug: string;
+  kind: "percent" | "eur";
+  value: number;
+}
+
+// Brain: gli sconti per-prodotto vengono presi DETERMINISTICAMENTE dall'ultima
+// submission del ProductPicker (messaggio JSON generative_submission), NON
+// dall'LLM che li droppa in modo intermittente. Iniettati in save_pending_school.
+function extractPickerDiscounts(
+  messages: Array<{ role: string; content: string }>,
+): ProductDiscount[] | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    try {
+      const p = JSON.parse(m.content) as {
+        kind?: string;
+        component?: string;
+        data?: { productDiscounts?: ProductDiscount[] };
+      };
+      if (p?.kind === "generative_submission" && p.component === "ProductPicker") {
+        return p.data?.productDiscounts ?? [];
+      }
+    } catch {
+      // non-JSON message, ignora
+    }
+  }
+  return null;
+}
+
 export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
   // Brain: WS04 (decision-015 + diary 2026-05-26) — l'agente onboarding
   // bypassa Payload e scrive il descriptor .md direttamente su filesystem
@@ -35,6 +66,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
   void opts.tenant;
   void opts.cookie;
   const { model } = await resolveModel("onboard-school", "default");
+  // Sconti per-prodotto deterministici dalla submission ProductPicker (non LLM).
+  const pickerDiscounts = extractPickerDiscounts(opts.messages);
 
   const result = streamText({
     model,
@@ -177,9 +210,13 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           "Salva la nuova scuola in Payload (collection pending-schools). I componenti di ogni bundle sono PIATTI: { productSlug, variantSku }. Chiama SOLO quando hai raccolto tutti i campi obbligatori (slug, nome, indirizzo completo, almeno 1 bundle) e l'utente ha confermato esplicitamente.",
         parameters: pendingSchoolInputSchema,
         execute: async (input) => {
-          const res = await writePendingSchoolMarkdown(
-            toCanonicalPendingSchool(input),
-          );
+          const doc = toCanonicalPendingSchool(input);
+          // Override deterministico: gli sconti vengono dal ProductPicker, non
+          // dall'LLM (che a volte li omette). Se la submission ne aveva, vincono.
+          if (pickerDiscounts && pickerDiscounts.length > 0) {
+            doc.catalog = { ...doc.catalog, productDiscounts: pickerDiscounts };
+          }
+          const res = await writePendingSchoolMarkdown(doc);
           return {
             id: res.slug,
             filePath: res.filePath,
