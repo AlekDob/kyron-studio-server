@@ -27,7 +27,11 @@ export interface PortalDetail extends PortalSummary {
   shipToSchool: boolean;
   shippingMethodLabel: string;
   shippingPriceEur: number;
-  catalog: { visibleSlugs: string[]; hiddenSlugs: string[] };
+  catalog: {
+    visibleSlugs: string[];
+    hiddenSlugs: string[];
+    productDiscounts: ProductDiscount[];
+  };
   bundles: Array<{
     slug: string;
     name: string;
@@ -51,6 +55,24 @@ function asArray(value: unknown): unknown[] {
 
 function asStringArray(value: unknown): string[] {
   return asArray(value).map((v) => String(v));
+}
+
+export interface ProductDiscount {
+  slug: string;
+  kind: "percent" | "eur";
+  value: number;
+}
+
+// Normalizza catalog.productDiscounts dal doc Payload (jsonb).
+function asProductDiscounts(value: unknown): ProductDiscount[] {
+  return asArray(value)
+    .map((v) => v as Record<string, unknown>)
+    .filter((v) => v && typeof v.slug === "string")
+    .map((v) => ({
+      slug: String(v.slug),
+      kind: v.kind === "eur" ? "eur" : "percent",
+      value: Number(v.value ?? 0),
+    }));
 }
 
 function toSummary(doc: Record<string, unknown>): PortalSummary {
@@ -87,6 +109,7 @@ function toDetail(doc: Record<string, unknown>): PortalDetail {
     catalog: {
       visibleSlugs: asStringArray(catalogRaw.visibleSlugs),
       hiddenSlugs: asStringArray(catalogRaw.hiddenSlugs),
+      productDiscounts: asProductDiscounts(catalogRaw.productDiscounts),
     },
     bundles: bundlesRaw.map((b) => ({
       slug: String(b.slug ?? ""),
