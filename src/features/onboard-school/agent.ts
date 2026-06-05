@@ -227,9 +227,33 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           };
         },
       }),
+      set_portal_status: tool({
+        description:
+          "Cambia SOLO lo stato di un portale esistente (draft=Bozza, review=Da rivedere, approved=Approvato, onboarded=Live/Completato). Usa QUESTO tool per qualunque richiesta di cambio stato (es. 'metti completato', 'segna come live') invece di update_portal. Parametri minimi: slug + status.",
+        parameters: z.object({
+          slug: z.string().describe("slug ESATTO o nome del portale (fuzzy match)"),
+          status: z
+            .enum(["draft", "review", "approved", "onboarded"])
+            .describe("nuovo stato; 'completato'/'live' => onboarded"),
+        }),
+        execute: async ({ slug, status }) => {
+          const { portal, candidates } = await resolvePortal(slug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${slug}" e' ambiguo (${candidates.length} match). Specifica lo slug esatto.`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${slug}" non trovato.` };
+          }
+          const result = await updatePortal(portal.slug, { status });
+          return { ...result, message: `Stato di ${portal.nome} impostato a "${status}".` };
+        },
+      }),
       update_portal: tool({
         description:
-          "Aggiorna campi specifici di un portale esistente. Passa null per i campi che NON vuoi modificare. Usa SOLO per portali gia' salvati. Prima chiama get_portal per mostrare lo stato attuale, poi chiedi all'utente cosa vuole cambiare.",
+          "Aggiorna campi specifici di un portale esistente. Per il solo STATO usa set_portal_status. Passa null per i campi che NON vuoi modificare. Usa SOLO per portali gia' salvati. Prima chiama get_portal per mostrare lo stato attuale, poi chiedi all'utente cosa vuole cambiare.",
         parameters: z.object({
           slug: z.string().describe("slug ESATTO del portale (ottenuto da get_portal/list_portals)"),
           nome: z.string().nullable().describe("nuovo nome (null = invariato)"),

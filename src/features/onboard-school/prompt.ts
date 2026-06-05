@@ -54,6 +54,8 @@ FLUSSO MODIFICA PORTALE:
 4. Chiama update_portal con lo slug e i campi da aggiornare (null per i campi invariati).
 5. Conferma l'aggiornamento.
 
+CAMBIO STATO: se l'utente chiede SOLO di cambiare lo stato (es. "metti completato", "segna come live/approvato/bozza"), chiama DIRETTAMENTE set_portal_status con {slug, status} (completato/live => onboarded). NON usare update_portal per il solo stato. Non serve get_portal prima.
+
 FLUSSO AGGIUNGI KIT A PORTALE ESISTENTE:
 1. L'utente dice "aggiungi kit a X" / "voglio aggiungere un bundle a X" / "puoi aggiungerlo a portale Y" o simili.
 2. Chiama get_portal per recuperare il portale (passa il nome o lo slug; il tool fa fuzzy match) e mostra i kit gia' presenti.
