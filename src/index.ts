@@ -9,6 +9,8 @@ import { collectionsRoute } from "@/features/collections/route.js";
 import { dataEditorRoute } from "@/features/data-editor/route.js";
 import { reviewEditorRoute } from "@/features/review-editor/route.js";
 import { portalsRoute } from "@/features/portals/route.js";
+import { authRoute } from "@/features/auth/route.js";
+import { studioUsersRoute } from "@/features/studio-users/route.js";
 
 // Brain: decision-013 — studio-server e' il prodotto agentico orizzontale di
 // Studio Futuro. Tenant-aware via header X-Tenant. Oggi serve Kyron, domani
@@ -41,6 +43,8 @@ app.route("/api/v1/collections", collectionsRoute);
 app.route("/agents/data-editor", dataEditorRoute);
 app.route("/agents/review-editor", reviewEditorRoute);
 app.route("/api/v1/portals", portalsRoute);
+app.route("/auth", authRoute);
+app.route("/api/v1/studio-users", studioUsersRoute);
 
 const port = Number(process.env.PORT ?? 8790);
 serve({ fetch: app.fetch, port }, (info) => {

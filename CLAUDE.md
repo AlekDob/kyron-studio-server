@@ -87,17 +87,22 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /agents/onboard-school            → SSE agent (X-Tenant required)
 /agents/data-editor               → SSE agent Editor Dati (X-Tenant + kyron-rev) — feature 002
 /agents/review-editor             → SSE agent Review Editor (X-Tenant + kyron-rev) — feature 003
-/settings                         → AI provider config + model routing
+/settings                         → AI provider config + model routing (ADMIN-ONLY, feature 008)
 /api/v1/collections               → BFF gateway Payload (X-Tenant + kyron-rev cookie) — feature 001
 /api/v1/collections/:slug         → list records
 /api/v1/collections/:slug/:id     → get/update/delete record
+/auth/resolve?email=              → allowlist + ruolo PRE-login (X-Tenant, no cookie) — feature 008
+/auth/me                          → utente loggato + ruolo (X-Tenant + kyron-rev) — feature 008
+/api/v1/studio-users              → CRUD utenti Studio (ADMIN-ONLY) — feature 008
 ```
 
 ## Auth
 
 - **Agent routes** (`/agents/*`): `X-Tenant` header + cookie forwarding (user's `payload-token`)
 - **Gateway routes** (`/api/v1/*`): `X-Tenant` header + `kyron-rev` cookie HMAC validation + Payload API Key service-to-service
-- **Settings routes** (`/settings`): no auth (TODO: proteggere)
+- **Settings routes** (`/settings`): X-Tenant + cookie kyron-rev + **requireAdmin** (feature 008)
+- **Studio-users routes** (`/api/v1/studio-users`): X-Tenant + cookie + **requireAdmin** (feature 008)
+- **Auth resolve** (`/auth/resolve`): solo X-Tenant (pre-login, no cookie) — feature 008
 
 Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto HMAC e' `KYRON_REVIEW_SECRET` (deve matchare quello del cms). Vedi `src/middleware/studio-auth.ts`.
 
@@ -135,6 +140,10 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 |---|---|
 | `src/index.ts` | entry point, Hono app, route mounting |
 | `src/middleware/studio-auth.ts` | validazione cookie kyron-rev HMAC |
+| `src/middleware/require-admin.ts` | gate admin-only (lookup ruolo da studio-users) — feature 008 |
+| `src/core/studio-users/store.ts` | CRUD + lookup utenti Studio + countActiveAdmins — feature 008 |
+| `src/features/auth/route.ts` | /auth/resolve (pre-login) + /auth/me — feature 008 |
+| `src/features/studio-users/route.ts` | CRUD utenti Studio admin-only — feature 008 |
 | `src/core/tenant/middleware.ts` | validazione X-Tenant header |
 | `src/core/payload/gateway.ts` | client HTTP generico verso Payload REST |
 | `src/core/payload/client.ts` | client legacy per PendingSchools (cookie-based) |

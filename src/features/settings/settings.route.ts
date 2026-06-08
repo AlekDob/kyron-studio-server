@@ -12,6 +12,8 @@ import {
 import { testProviderConnection } from "./provider-test.js";
 import { listProviderModels } from "./list-models.js";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
+import { tenantMiddleware } from "@/core/tenant/middleware.js";
+import { requireAdmin } from "@/middleware/require-admin.js";
 
 export const settingsRoute = new Hono();
 
@@ -19,7 +21,11 @@ export const settingsRoute = new Hono();
 // /settings configura provider AI + model routing ed esegue test che CONSUMANO
 // la API key: va protetto come collections/data-editor. Prima era pubblico su
 // studio-server.kyronedu.it (live). Richiede sessione Studio (cookie kyron-rev).
+// Brain: feature-008-organization-users — provider/modelli/MCP sono admin-only.
+// tenantMiddleware serve a requireAdmin per il lookup ruolo (frontend invia X-Tenant).
+settingsRoute.use("*", tenantMiddleware);
 settingsRoute.use("*", studioAuthMiddleware);
+settingsRoute.use("*", requireAdmin);
 
 const modelConfigSchema = z.object({
   provider: z.enum(PROVIDER_IDS),
