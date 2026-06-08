@@ -1,11 +1,17 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
+import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 import { runOnboardSchoolAgent } from "./agent.js";
 
 export const onboardSchoolRoute = new Hono();
 
 onboardSchoolRoute.use("*", tenantMiddleware);
+// Brain: onboarding richiede login — cosi' sappiamo SEMPRE quale agente Studio
+// (utente loggato, identificato via email nel cookie kyron-rev) ha richiesto
+// l'onboarding. Coerente con data-editor/review-editor. Il frontend inoltra gia'
+// il cookie via il proxy /api/agent/onboard-school.
+onboardSchoolRoute.use("*", studioAuthMiddleware);
 
 // Brain: protocollo SSE allineato a Virgilio chat-runtime + WS04 (decision-015).
 // Emette `delta`, `tool` (con args), `toolResult` (con result + opzionale _ui descriptor
@@ -14,6 +20,7 @@ onboardSchoolRoute.use("*", tenantMiddleware);
 
 onboardSchoolRoute.post("/", async (c) => {
   const tenant = c.get("tenant");
+  const user = c.get("studioUser");
   const body = (await c.req.json()) as {
     messages: Array<{ role: "user" | "assistant"; content: string }>;
   };
@@ -24,6 +31,7 @@ onboardSchoolRoute.post("/", async (c) => {
       for await (const chunk of runOnboardSchoolAgent({
         tenant,
         cookie,
+        userEmail: user.email,
         messages: body.messages,
       })) {
         if (chunk.type === "text-delta") {

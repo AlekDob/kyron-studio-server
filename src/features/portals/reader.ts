@@ -13,6 +13,8 @@ export interface PortalSummary {
   countryArea: string;
   status: string;
   collectedBy: string;
+  // Email dell'agente Studio che ha richiesto l'onboarding (vuoto se sconosciuto).
+  requestedBy: string;
   collectedAt: string;
   bundleCount: number;
   productCount: number;
@@ -86,6 +88,7 @@ function toSummary(doc: Record<string, unknown>): PortalSummary {
     countryArea: String(addr.countryArea ?? ""),
     status: String(doc.status ?? "draft"),
     collectedBy: String(doc.collectedBy ?? "agent"),
+    requestedBy: String(doc.requestedBy ?? ""),
     collectedAt: String(doc.createdAt ?? doc.updatedAt ?? ""),
     bundleCount: bundles.length,
     productCount: asStringArray(catalog.visibleSlugs).length,

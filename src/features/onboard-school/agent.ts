@@ -22,6 +22,8 @@ import {
 interface AgentRunOptions {
   tenant: TenantConfig;
   cookie: string;
+  // Email dell'agente Studio loggato che ha avviato l'onboarding (cookie kyron-rev).
+  userEmail: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
@@ -216,7 +218,7 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           if (pickerDiscounts && pickerDiscounts.length > 0) {
             doc.catalog = { ...doc.catalog, productDiscounts: pickerDiscounts };
           }
-          const res = await writePendingSchoolMarkdown(doc);
+          const res = await writePendingSchoolMarkdown(doc, opts.userEmail);
           return {
             id: res.slug,
             filePath: res.filePath,

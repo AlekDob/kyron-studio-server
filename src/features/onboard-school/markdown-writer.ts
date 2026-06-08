@@ -24,12 +24,14 @@ export async function pendingSchoolSlugExists(
   return Boolean(doc);
 }
 
-function toPayloadDoc(doc: PendingSchool) {
+function toPayloadDoc(doc: PendingSchool, requestedBy: string) {
   return {
     slug: doc.slug,
     nome: doc.nome,
     status: "draft",
     collectedBy: "agent",
+    // Email dell'agente Studio loggato che ha avviato l'onboarding.
+    requestedBy,
     sitoUfficiale: doc.sitoUfficiale ?? "",
     codiceMeccanografico: doc.codiceMeccanografico ?? "TBD",
     schoolAddress: {
@@ -52,10 +54,11 @@ function toPayloadDoc(doc: PendingSchool) {
 
 export async function writePendingSchoolMarkdown(
   doc: PendingSchool,
+  requestedBy: string,
 ): Promise<WriteResult> {
   const gw = getPortalsGateway();
   const existing = await findPortalDoc(doc.slug);
-  const payloadDoc = toPayloadDoc(doc);
+  const payloadDoc = toPayloadDoc(doc, requestedBy);
 
   if (existing) {
     await gw.update(PORTALS_COLLECTION, String(existing.id), payloadDoc);
