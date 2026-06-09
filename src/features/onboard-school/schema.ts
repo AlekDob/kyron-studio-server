@@ -24,14 +24,33 @@ const componentSchema = z.object({
   selection: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("fixed"), variantSku: z.string() }),
     z.object({ kind: z.literal("variant"), variantSku: z.string() }),
-    z.object({ kind: z.literal("by-attribute"), attribute: z.string() }),
+    // valueFilter: vincola altri attributi (es. {capacita:"128gb"}) mentre il
+    // cliente sceglie l'attributo `attribute` (colore) al checkout. Forma
+    // canonica (non esposta all'LLM) → puo' usare optional.
+    z.object({
+      kind: z.literal("by-attribute"),
+      attribute: z.string(),
+      valueFilter: z.record(z.string(), z.string()).optional(),
+    }),
   ]),
 });
 
 const productDiscountSchema = z.object({
   slug: z.string(),
+  // Taglio (slug valore capacita, es. "128gb") a cui lo sconto si applica;
+  // null = sconto sul prodotto intero. Solo prodotti con tagli usano capacity.
+  capacity: z.string().nullable(),
   kind: z.enum(["percent", "eur"]),
   value: z.number(),
+});
+
+// Taglio pubblicato a catalogo: solo le SKU che matchano attribute=value
+// (es. capacita=128gb) ricevono il channel listing nel seed; le altre restano
+// non vendibili su quel channel. Per i prodotti senza tagli si usa visibleSlugs.
+const visibleVariantSchema = z.object({
+  productSlug: z.string(),
+  attribute: z.string(),
+  value: z.string(),
 });
 
 const bundleSchema = z.object({
@@ -56,11 +75,22 @@ export const pendingSchoolSchema = z.object({
   shippingPriceEur: z.number().nonnegative(),
   catalog: z.object({
     visibleSlugs: z.array(z.string()),
+    // Tagli pubblicati a catalogo (prodotti con varianti capacita, es. iPad).
+    // [] quando nessuno. Il prodotto va comunque pubblicato ma solo le SKU del
+    // taglio ricevono il channel listing nel seed.
+    visibleVariants: z.array(visibleVariantSchema),
     hiddenSlugs: z.array(z.string()),
     // Sconto per-prodotto (additivo, non rompe visibleSlugs). percent = % di
     // sconto (0-100); eur = prezzo finale scontato in EUR. Solo prodotti con
     // sconto impostato. null/[] quando nessuno. Applicato su Saleor in onboarding.
     productDiscounts: z.array(productDiscountSchema).nullable(),
+    // Vendita fuori dal bundle: indica se i prodotti possono essere acquistati
+    // anche singolarmente, non solo dentro un kit. Solo informativo per Alek
+    // (la logica di pubblicazione su Saleor e' gia' gestita in fase di seed):
+    // hero = dispositivi Apple (iPad/Mac/iPhone), accessories = il resto del
+    // catalogo. Default false (vendita solo nel bundle, es. caso Orsoline).
+    heroOutsideBundle: z.boolean(),
+    accessoriesOutsideBundle: z.boolean(),
   }),
   bundles: z.array(bundleSchema),
 });
@@ -74,7 +104,11 @@ export type PendingSchool = z.infer<typeof pendingSchoolSchema>;
 // con add_bundle_to_portal. pendingSchoolSchema resta la forma canonica del writer.
 const inputComponentSchema = z.object({
   productSlug: z.string(),
-  variantSku: z.string(),
+  // SKU variante fissa (accessori monovariante). null se si usa `capacity`.
+  variantSku: z.string().nullable(),
+  // Taglio (slug valore capacita, es. "128gb"): il cliente sceglie il colore al
+  // checkout → mappato a selection by-attribute. null se si usa `variantSku`.
+  capacity: z.string().nullable(),
 });
 
 const inputBundleSchema = z.object({
@@ -100,7 +134,14 @@ export function toCanonicalPendingSchool(
       ...bundle,
       components: bundle.components.map((c) => ({
         productSlug: c.productSlug,
-        selection: { kind: "variant" as const, variantSku: c.variantSku },
+        // capacity vince: il cliente sceglie il colore, la capacita e' fissa.
+        selection: c.capacity
+          ? {
+              kind: "by-attribute" as const,
+              attribute: "colore",
+              valueFilter: { capacita: c.capacity },
+            }
+          : { kind: "variant" as const, variantSku: c.variantSku ?? c.productSlug },
       })),
     })),
   };

@@ -84,7 +84,11 @@ export interface BundleInput {
     selection:
       | { kind: "fixed"; variantSku: string }
       | { kind: "variant"; variantSku: string }
-      | { kind: "by-attribute"; attribute: string };
+      | {
+          kind: "by-attribute";
+          attribute: string;
+          valueFilter?: Record<string, string>;
+        };
   }>;
 }
 
@@ -133,15 +137,14 @@ export async function updatePortalCatalog(
 ): Promise<{ ok: boolean; slug: string; total: number }> {
   const doc = await findPortalDoc(slug);
   if (!doc) throw new Error(`portal "${slug}" not found`);
-  const currentCatalog = (doc.catalog as {
-    visibleSlugs?: unknown;
-    hiddenSlugs?: unknown;
-  }) ?? {};
+  // Preserva gli altri campi del catalog (visibleVariants, productDiscounts,
+  // hero/accessoriesOutsideBundle): sovrascrivere solo visibleSlugs evita di
+  // azzerare tagli/sconti/flag impostati durante l'onboarding.
+  const currentCatalog =
+    (doc.catalog as Record<string, unknown>) ?? {};
   const nextCatalog = {
+    ...currentCatalog,
     visibleSlugs: [...new Set(visibleSlugs)],
-    hiddenSlugs: Array.isArray(currentCatalog.hiddenSlugs)
-      ? (currentCatalog.hiddenSlugs as string[])
-      : [],
   };
   const gw = getPortalsGateway();
   await gw.update(PORTALS_COLLECTION, String(doc.id), { catalog: nextCatalog });

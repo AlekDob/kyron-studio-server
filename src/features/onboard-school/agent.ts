@@ -29,16 +29,43 @@ interface AgentRunOptions {
 
 interface ProductDiscount {
   slug: string;
+  // Taglio (slug valore capacita, es. "128gb") o null = prodotto intero.
+  capacity: string | null;
   kind: "percent" | "eur";
   value: number;
 }
 
-// Brain: gli sconti per-prodotto vengono presi DETERMINISTICAMENTE dall'ultima
-// submission del ProductPicker (messaggio JSON generative_submission), NON
-// dall'LLM che li droppa in modo intermittente. Iniettati in save_pending_school.
-function extractPickerDiscounts(
+interface VisibleVariant {
+  productSlug: string;
+  attribute: string;
+  value: string;
+}
+
+interface PickerSelection {
+  visibleSlugs: string[];
+  visibleVariants: VisibleVariant[];
+  productDiscounts: ProductDiscount[];
+}
+
+// Forma della submission ProductPicker (client): selezioni come {slug, capacitySlug?}
+// e sconti come {slug, capacitySlug?, kind, value}. capacitySlug => taglio.
+interface PickerSubmissionRow {
+  slug: string;
+  capacitySlug?: string | null;
+}
+interface PickerDiscountRow extends PickerSubmissionRow {
+  kind: "percent" | "eur";
+  value: number;
+}
+
+// Brain: la selezione catalogo (prodotti interi vs tagli) e gli sconti vengono
+// presi DETERMINISTICAMENTE dall'ultima submission del ProductPicker (messaggio
+// JSON generative_submission), NON dall'LLM che li droppa/confonde. Le righe con
+// capacitySlug diventano visibleVariants (taglio), le altre visibleSlugs.
+// Iniettati in save_pending_school.
+function extractPickerSelection(
   messages: Array<{ role: string; content: string }>,
-): ProductDiscount[] | null {
+): PickerSelection | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== "user") continue;
@@ -46,16 +73,73 @@ function extractPickerDiscounts(
       const p = JSON.parse(m.content) as {
         kind?: string;
         component?: string;
-        data?: { productDiscounts?: ProductDiscount[] };
+        data?: {
+          selections?: PickerSubmissionRow[];
+          productDiscounts?: PickerDiscountRow[];
+        };
       };
-      if (p?.kind === "generative_submission" && p.component === "ProductPicker") {
-        return p.data?.productDiscounts ?? [];
+      if (p?.kind !== "generative_submission" || p.component !== "ProductPicker") {
+        continue;
       }
+      const selections = p.data?.selections ?? [];
+      const visibleSlugs: string[] = [];
+      const visibleVariants: VisibleVariant[] = [];
+      for (const s of selections) {
+        if (s.capacitySlug) {
+          visibleVariants.push({
+            productSlug: s.slug,
+            attribute: "capacita",
+            value: s.capacitySlug,
+          });
+        } else {
+          visibleSlugs.push(s.slug);
+        }
+      }
+      const productDiscounts: ProductDiscount[] = (p.data?.productDiscounts ?? []).map(
+        (d) => ({
+          slug: d.slug,
+          capacity: d.capacitySlug ?? null,
+          kind: d.kind,
+          value: d.value,
+        }),
+      );
+      return { visibleSlugs, visibleVariants, productDiscounts };
     } catch {
       // non-JSON message, ignora
     }
   }
   return null;
+}
+
+type CanonicalComponent = {
+  productSlug: string;
+  selection:
+    | { kind: "variant"; variantSku: string }
+    | { kind: "by-attribute"; attribute: string; valueFilter: Record<string, string> };
+};
+
+// Mappa un componente flat {productSlug, variantSku?, capacity?} alla forma
+// canonica `selection`. capacity => by-attribute su `colore` con la capacita
+// fissata in valueFilter (il cliente sceglie il colore al checkout).
+function toComponentSelection(c: {
+  productSlug: string;
+  variantSku?: string | null;
+  capacity?: string | null;
+}): CanonicalComponent {
+  if (c.capacity) {
+    return {
+      productSlug: c.productSlug,
+      selection: {
+        kind: "by-attribute",
+        attribute: "colore",
+        valueFilter: { capacita: c.capacity },
+      },
+    };
+  }
+  return {
+    productSlug: c.productSlug,
+    selection: { kind: "variant", variantSku: c.variantSku ?? c.productSlug },
+  };
 }
 
 export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
@@ -68,8 +152,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
   void opts.tenant;
   void opts.cookie;
   const { model } = await resolveModel("onboard-school", "default");
-  // Sconti per-prodotto deterministici dalla submission ProductPicker (non LLM).
-  const pickerDiscounts = extractPickerDiscounts(opts.messages);
+  // Selezione catalogo + sconti deterministici dalla submission ProductPicker (non LLM).
+  const pickerSelection = extractPickerSelection(opts.messages);
 
   const result = streamText({
     model,
@@ -213,10 +297,19 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
         parameters: pendingSchoolInputSchema,
         execute: async (input) => {
           const doc = toCanonicalPendingSchool(input);
-          // Override deterministico: gli sconti vengono dal ProductPicker, non
-          // dall'LLM (che a volte li omette). Se la submission ne aveva, vincono.
-          if (pickerDiscounts && pickerDiscounts.length > 0) {
-            doc.catalog = { ...doc.catalog, productDiscounts: pickerDiscounts };
+          // Override deterministico: selezione catalogo (prodotti interi vs tagli)
+          // e sconti vengono dal ProductPicker, non dall'LLM (che a volte li omette
+          // o confonde). Se la submission c'e', vince.
+          if (pickerSelection) {
+            doc.catalog = {
+              ...doc.catalog,
+              visibleSlugs: pickerSelection.visibleSlugs,
+              visibleVariants: pickerSelection.visibleVariants,
+              productDiscounts:
+                pickerSelection.productDiscounts.length > 0
+                  ? pickerSelection.productDiscounts
+                  : doc.catalog.productDiscounts,
+            };
           }
           const res = await writePendingSchoolMarkdown(doc, opts.userEmail);
           return {
@@ -339,7 +432,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             .array(
               z.object({
                 productSlug: z.string(),
-                variantSku: z.string().describe("SKU della variante; usa il productSlug se la submission non specifica una variante diversa"),
+                variantSku: z.string().nullable().describe("SKU della variante fissa (accessori monovariante); usa il productSlug se non c'e' variante specifica. null se usi capacity."),
+                capacity: z.string().nullable().describe("slug taglio capacita (es. '128gb'): il componente diventa by-attribute (cliente sceglie il colore al checkout). null se usi variantSku."),
               }),
             )
             .min(1)
@@ -360,10 +454,7 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             slug: bundleSlug,
             name,
             finalPriceEur,
-            components: components.map((c) => ({
-              productSlug: c.productSlug,
-              selection: { kind: "variant", variantSku: c.variantSku },
-            })),
+            components: components.map((c) => toComponentSelection(c)),
           });
           return {
             ...result,
@@ -410,7 +501,11 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             .array(
               z.object({
                 productSlug: z.string(),
-                variantSku: z.string(),
+                variantSku: z.string().nullable(),
+                capacity: z
+                  .string()
+                  .nullable()
+                  .describe("slug taglio capacita (es. '128gb') => by-attribute colore; null se usi variantSku"),
               }),
             )
             .nullable()
@@ -430,18 +525,12 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           const patch: {
             name?: string;
             finalPriceEur?: number;
-            components?: Array<{
-              productSlug: string;
-              selection: { kind: "variant"; variantSku: string };
-            }>;
+            components?: CanonicalComponent[];
           } = {};
           if (name != null) patch.name = name;
           if (finalPriceEur != null) patch.finalPriceEur = finalPriceEur;
           if (components != null) {
-            patch.components = components.map((c) => ({
-              productSlug: c.productSlug,
-              selection: { kind: "variant", variantSku: c.variantSku },
-            }));
+            patch.components = components.map((c) => toComponentSelection(c));
           }
           try {
             const result = await updateBundleInPortal(
