@@ -31,8 +31,11 @@ export interface PortalDetail extends PortalSummary {
   shippingPriceEur: number;
   catalog: {
     visibleSlugs: string[];
+    visibleVariants: VisibleVariant[];
     hiddenSlugs: string[];
     productDiscounts: ProductDiscount[];
+    heroOutsideBundle: boolean;
+    accessoriesOutsideBundle: boolean;
   };
   bundles: Array<{
     slug: string;
@@ -61,8 +64,16 @@ function asStringArray(value: unknown): string[] {
 
 export interface ProductDiscount {
   slug: string;
+  // Taglio (slug valore capacita, es. "128gb") o null = prodotto intero.
+  capacity: string | null;
   kind: "percent" | "eur";
   value: number;
+}
+
+export interface VisibleVariant {
+  productSlug: string;
+  attribute: string;
+  value: string;
 }
 
 // Normalizza catalog.productDiscounts dal doc Payload (jsonb).
@@ -72,14 +83,28 @@ function asProductDiscounts(value: unknown): ProductDiscount[] {
     .filter((v) => v && typeof v.slug === "string")
     .map((v) => ({
       slug: String(v.slug),
+      capacity: typeof v.capacity === "string" ? v.capacity : null,
       kind: v.kind === "eur" ? "eur" : "percent",
       value: Number(v.value ?? 0),
     }));
 }
 
+// Normalizza catalog.visibleVariants (tagli pubblicati) dal doc Payload (jsonb).
+function asVisibleVariants(value: unknown): VisibleVariant[] {
+  return asArray(value)
+    .map((v) => v as Record<string, unknown>)
+    .filter((v) => v && typeof v.productSlug === "string")
+    .map((v) => ({
+      productSlug: String(v.productSlug),
+      attribute: String(v.attribute ?? "capacita"),
+      value: String(v.value ?? ""),
+    }));
+}
+
 function toSummary(doc: Record<string, unknown>): PortalSummary {
   const addr = (doc.schoolAddress as Record<string, string>) ?? {};
-  const catalog = (doc.catalog as { visibleSlugs?: unknown }) ?? {};
+  const catalog =
+    (doc.catalog as { visibleSlugs?: unknown; visibleVariants?: unknown }) ?? {};
   const bundles = asArray(doc.bundles);
   return {
     slug: String(doc.slug ?? ""),
@@ -91,7 +116,10 @@ function toSummary(doc: Record<string, unknown>): PortalSummary {
     requestedBy: String(doc.requestedBy ?? ""),
     collectedAt: String(doc.createdAt ?? doc.updatedAt ?? ""),
     bundleCount: bundles.length,
-    productCount: asStringArray(catalog.visibleSlugs).length,
+    // I tagli (visibleVariants) sono prodotti a catalogo a tutti gli effetti.
+    productCount:
+      asStringArray(catalog.visibleSlugs).length +
+      asVisibleVariants(catalog.visibleVariants).length,
   };
 }
 
@@ -111,8 +139,11 @@ function toDetail(doc: Record<string, unknown>): PortalDetail {
     shippingPriceEur: Number(doc.shippingPriceEur ?? 0),
     catalog: {
       visibleSlugs: asStringArray(catalogRaw.visibleSlugs),
+      visibleVariants: asVisibleVariants(catalogRaw.visibleVariants),
       hiddenSlugs: asStringArray(catalogRaw.hiddenSlugs),
       productDiscounts: asProductDiscounts(catalogRaw.productDiscounts),
+      heroOutsideBundle: Boolean(catalogRaw.heroOutsideBundle),
+      accessoriesOutsideBundle: Boolean(catalogRaw.accessoriesOutsideBundle),
     },
     bundles: bundlesRaw.map((b) => ({
       slug: String(b.slug ?? ""),
