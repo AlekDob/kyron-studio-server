@@ -21,6 +21,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.1.0",
     "@types/node": "^22.0.0",
     "tsc-alias": "^1.8.17",
     "tsx": "^4.19.0",
