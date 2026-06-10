@@ -1,4 +1,5 @@
 import { getPortalsGateway, PORTALS_COLLECTION } from "./gateway.js";
+import { kyronTenant } from "@/config/tenants/kyron.js";
 
 // Brain: decision-016 — portali su Payload collection `pending-schools`.
 // reader.ts traduce i doc Payload nelle interfacce PortalSummary/PortalDetail
@@ -25,7 +26,7 @@ export interface PortalDetail extends PortalSummary {
   sitoUfficiale: string;
   codiceMeccanografico: string;
   schoolAddress: Record<string, unknown>;
-  branding: Record<string, unknown>;
+  branding: { nome: string; logoUrl: string | null };
   shipToSchool: boolean;
   shippingMethodLabel: string;
   shippingPriceEur: number;
@@ -123,6 +124,24 @@ function toSummary(doc: Record<string, unknown>): PortalSummary {
   };
 }
 
+// Origin pubblico del cms (serve i media), derivato da payloadApiUrl togliendo /api.
+function mediaOrigin(): string {
+  return kyronTenant.payloadApiUrl.replace(/\/api\/?$/, "");
+}
+
+// Estrae l'URL assoluto del logo dal branding. Con depth>=1 il campo
+// branding.logo (relazione upload->media) e' popolato come {url, filename}.
+function brandingLogoUrl(branding: Record<string, unknown>): string | null {
+  const logo = branding.logo;
+  if (logo && typeof logo === "object") {
+    const url = (logo as Record<string, unknown>).url;
+    if (typeof url === "string" && url) {
+      return url.startsWith("http") ? url : `${mediaOrigin()}${url}`;
+    }
+  }
+  return null;
+}
+
 function toDetail(doc: Record<string, unknown>): PortalDetail {
   const summary = toSummary(doc);
   const catalogRaw = (doc.catalog as Record<string, unknown>) ?? {};
@@ -133,7 +152,10 @@ function toDetail(doc: Record<string, unknown>): PortalDetail {
     sitoUfficiale: String(doc.sitoUfficiale ?? ""),
     codiceMeccanografico: String(doc.codiceMeccanografico ?? ""),
     schoolAddress: (doc.schoolAddress as Record<string, unknown>) ?? {},
-    branding: (doc.branding as Record<string, unknown>) ?? {},
+    branding: {
+      nome: String((doc.branding as Record<string, unknown>)?.nome ?? ""),
+      logoUrl: brandingLogoUrl((doc.branding as Record<string, unknown>) ?? {}),
+    },
     shipToSchool: Boolean(doc.shipToSchool),
     shippingMethodLabel: String(doc.shippingMethodLabel ?? ""),
     shippingPriceEur: Number(doc.shippingPriceEur ?? 0),
