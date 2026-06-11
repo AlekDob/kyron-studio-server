@@ -6,6 +6,12 @@
 const FUNNEL_EVENTS =
   "'product_added_to_cart', 'checkout_started', 'order_completed'";
 
+// Solo traffico di PRODUZIONE: PostHog cattura $host su ogni evento, e il
+// project e' condiviso con staging/smoke test (storico incluso) — senza
+// questo filtro i numeri di Studio conterebbero anche staging.kyronedu.it
+// e localhost.
+const PROD_HOSTS = "'kyronedu.it', 'www.kyronedu.it'";
+
 // Query A — breakdown per (app, school_slug): copre totali, per-app e
 // per-tenant in un passaggio. Colonne:
 // [app, school_slug, pageviews, visitors, added_to_cart, checkouts, orders, revenue]
@@ -24,6 +30,7 @@ FROM events
 WHERE timestamp >= now() - INTERVAL ${days} DAY
   AND event IN ('$pageview', ${FUNNEL_EVENTS})
   AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
 GROUP BY app, school_slug
 `.trim();
 }
@@ -43,6 +50,7 @@ FROM events
 WHERE timestamp >= now() - INTERVAL ${days} DAY
   AND event IN ('$pageview', 'order_completed')
   AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
 GROUP BY day, app
 ORDER BY day ASC
 `.trim();
