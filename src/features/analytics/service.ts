@@ -1,15 +1,17 @@
 import { listPortals } from "@/features/portals/reader.js";
 import { makeTtlCache } from "./cache.js";
 import { runHogql } from "./posthog.js";
-import { breakdownQuery, timeseriesQuery } from "./queries.js";
+import { breakdownQuery, leadsQuery, timeseriesQuery } from "./queries.js";
 import {
   type AnalyticsOverview,
   type AppKey,
   type KpiTotals,
+  type LeadTotals,
   type RangeKey,
   RANGE_DAYS,
   type TenantRow,
   type TimeseriesPoint,
+  emptyLeads,
   emptyTotals,
 } from "./types.js";
 
@@ -47,9 +49,10 @@ export async function getOverview(range: RangeKey): Promise<AnalyticsOverview> {
 
 async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
   const days = RANGE_DAYS[range];
-  const [breakdownRows, seriesRows, portalNames] = await Promise.all([
+  const [breakdownRows, seriesRows, leadsRows, portalNames] = await Promise.all([
     runHogql(breakdownQuery(days)),
     runHogql(timeseriesQuery(days)),
+    runHogql(leadsQuery(days)),
     loadPortalNames(),
   ]);
 
@@ -64,9 +67,31 @@ async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
     stale: false,
     totals: sumKpis([byApp.cms, byApp.storefront]),
     byApp,
+    leads: buildLeads(leadsRows),
     tenants,
     timeseries: mapTimeseries(seriesRows),
   };
+}
+
+// Esportata per i test: aggrega le righe [event, form, count] della
+// leadsQuery in totali + breakdown per form (ordinata per volume).
+export function buildLeads(rows: unknown[][]): LeadTotals {
+  const leads = emptyLeads();
+  for (const r of rows) {
+    const event = String(r[0] ?? "");
+    const count = num(r[2]);
+    if (event === "form_submitted") {
+      leads.formSubmits += count;
+      const form = String(r[1] ?? "") || "altro";
+      leads.forms.push({ form, count });
+    } else if (event === "newsletter_subscribed") {
+      leads.newsletterSubs += count;
+    } else if (event === "account_registered") {
+      leads.registrations += count;
+    }
+  }
+  leads.forms.sort((a, b) => b.count - a.count);
+  return leads;
 }
 
 // I nomi dei portali sono cosmetici: se Payload e' giu' l'analytics

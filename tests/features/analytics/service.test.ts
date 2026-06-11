@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTenants } from "@/features/analytics/service.js";
+import { buildLeads, buildTenants } from "@/features/analytics/service.js";
 
 // Row shape Query A: [app, school_slug, pageviews, visitors, added_to_cart,
 // checkouts_started, orders, revenue]
@@ -82,5 +82,36 @@ describe("buildTenants (join dinamico PostHog <-> portali)", () => {
     );
     const slugs = tenants.filter((t) => t.app === "storefront").map((t) => t.slug);
     expect(slugs).toEqual(["b", "a", "c"]);
+  });
+});
+
+// Row shape Query C: [event, form, count]
+describe("buildLeads", () => {
+  it("aggrega form/newsletter/registrazioni con breakdown per form", () => {
+    const leads = buildLeads([
+      ["form_submitted", "contatti", 5],
+      ["form_submitted", "lavora-con-noi", 2],
+      ["form_submitted", "", 1],
+      ["newsletter_subscribed", "", 3],
+      ["account_registered", "", 4],
+    ]);
+    expect(leads.formSubmits).toBe(8);
+    expect(leads.newsletterSubs).toBe(3);
+    expect(leads.registrations).toBe(4);
+    // ordinati per volume, form vuoto -> "altro"
+    expect(leads.forms).toEqual([
+      { form: "contatti", count: 5 },
+      { form: "lavora-con-noi", count: 2 },
+      { form: "altro", count: 1 },
+    ]);
+  });
+
+  it("ritorna zeri su nessun evento", () => {
+    expect(buildLeads([])).toEqual({
+      formSubmits: 0,
+      newsletterSubs: 0,
+      registrations: 0,
+      forms: [],
+    });
   });
 });

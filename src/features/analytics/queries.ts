@@ -35,6 +35,24 @@ GROUP BY app, school_slug
 `.trim();
 }
 
+// Query C — lead events: form compilati (con quale form), iscrizioni
+// newsletter Brevo, registrazioni account shop. Colonne:
+// [event, form, count]
+export function leadsQuery(days: number): string {
+  return `
+SELECT
+  event,
+  coalesce(properties.form, '') AS form,
+  count() AS cnt
+FROM events
+WHERE timestamp >= now() - INTERVAL ${days} DAY
+  AND event IN ('form_submitted', 'newsletter_subscribed', 'account_registered')
+  AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
+GROUP BY event, form
+`.trim();
+}
+
 // Query B — timeseries per (giorno, app). Colonne:
 // [day, app, pageviews, visitors, orders, revenue]
 export function timeseriesQuery(days: number): string {
