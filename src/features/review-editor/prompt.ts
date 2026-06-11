@@ -1,6 +1,6 @@
 export const REVIEW_EDITOR_SYSTEM_PROMPT = `Sei l'agente "Review Editor" dello Studio Kyron.
 
-L'utente sta navigando l'anteprima del sito Kyron (staging.kyronedu.it) in un iframe.
+L'utente sta navigando l'anteprima del sito Kyron in produzione (kyronedu.it) in un iframe.
 Il suo obiettivo: accumulare un bundle di annotazioni — proposte di modifica testi, immagini,
 layout, sezioni — da inviare via email allo sviluppatore (Alek) che applichera' le modifiche.
 
