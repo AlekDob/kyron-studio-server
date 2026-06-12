@@ -184,6 +184,43 @@ LIMIT 20
 `.trim();
 }
 
+// Query G — pagine piu' visitate. Colonne: [path, pageviews, visitors]
+export function pagesQuery(range: RangeKey): string {
+  const w = RANGE_WINDOWS[range];
+  return `
+SELECT
+  coalesce(properties.$pathname, '/') AS path,
+  count() AS pageviews,
+  uniq(distinct_id) AS visitors
+FROM events
+WHERE ${currentWhere(w)}
+  AND event = '$pageview'
+  AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
+GROUP BY path
+ORDER BY pageviews DESC
+LIMIT 15
+`.trim();
+}
+
+// Query H — device dei visitatori (Desktop/Mobile/Tablet).
+// Colonne: [device, visitors]
+export function devicesQuery(range: RangeKey): string {
+  const w = RANGE_WINDOWS[range];
+  return `
+SELECT
+  coalesce(properties.$device_type, 'Altro') AS device,
+  uniq(distinct_id) AS visitors
+FROM events
+WHERE ${currentWhere(w)}
+  AND event = '$pageview'
+  AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
+GROUP BY device
+ORDER BY visitors DESC
+`.trim();
+}
+
 // Query D — totali del PERIODO PRECEDENTE per il confronto, grouped by app
 // (bastano i totali: il confronto vive sulle card KPI, non per-tenant).
 // Colonne: [app, pageviews, visitors, added_to_cart, checkouts, orders,

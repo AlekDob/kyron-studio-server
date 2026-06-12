@@ -103,6 +103,19 @@ export interface SourceRow {
   visitors: number;
 }
 
+// Pagina visitata: path + volumi.
+export interface PageRow {
+  path: string;
+  pageviews: number;
+  visitors: number;
+}
+
+// Device dei visitatori (Desktop/Mobile/Tablet/Altro).
+export interface DeviceRow {
+  device: string;
+  visitors: number;
+}
+
 export interface AnalyticsOverview {
   range: RangeKey;
   from: string;
@@ -118,6 +131,8 @@ export interface AnalyticsOverview {
   prev: PrevTotals;
   geo: GeoCity[];
   sources: SourceRow[];
+  pages: PageRow[];
+  devices: DeviceRow[];
   tenants: TenantRow[];
   timeseries: TimeseriesPoint[];
 }

@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
+import { requireAdmin } from "@/middleware/require-admin.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { getOverview } from "./service.js";
+import { sendDailyReport } from "./report.js";
 import { PosthogConfigError, PosthogQueryError } from "./posthog.js";
 
 // GET /api/v1/analytics/overview?range=today|yesterday|week|month|7d|30d|90d
@@ -33,6 +35,16 @@ analyticsRoute.get("/overview", async (c) => {
       return c.json({ error: "posthog_error", detail: err.message }, 502);
     }
     throw err;
+  }
+});
+
+// Trigger manuale del report giornaliero (test/recovery). ADMIN-ONLY.
+analyticsRoute.post("/report/send", requireAdmin, async (c) => {
+  try {
+    await sendDailyReport();
+    return c.json({ sent: true });
+  } catch (err) {
+    return c.json({ error: String(err) }, 502);
   }
 });
 

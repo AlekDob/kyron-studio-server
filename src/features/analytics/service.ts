@@ -4,8 +4,10 @@ import { runHogql } from "./posthog.js";
 import {
   RANGE_WINDOWS,
   breakdownQuery,
+  devicesQuery,
   geoQuery,
   leadsQuery,
+  pagesQuery,
   prevTotalsQuery,
   sourcesQuery,
   timeseriesQuery,
@@ -13,9 +15,11 @@ import {
 import {
   type AnalyticsOverview,
   type AppKey,
+  type DeviceRow,
   type GeoCity,
   type KpiTotals,
   type LeadTotals,
+  type PageRow,
   type PrevTotals,
   type SourceRow,
   type RangeKey,
@@ -67,6 +71,8 @@ async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
     prevRows,
     geoRows,
     sourcesRows,
+    pagesRows,
+    devicesRows,
     portalNames,
   ] = await Promise.all([
     runHogql(breakdownQuery(range)),
@@ -75,6 +81,8 @@ async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
     runHogql(prevTotalsQuery(range)),
     runHogql(geoQuery(range)),
     runHogql(sourcesQuery(range)),
+    runHogql(pagesQuery(range)),
+    runHogql(devicesQuery(range)),
     loadPortalNames(),
   ]);
 
@@ -94,6 +102,8 @@ async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
     prev: buildPrev(prevRows),
     geo: mapGeo(geoRows),
     sources: mapSources(sourcesRows),
+    pages: mapPages(pagesRows),
+    devices: mapDevices(devicesRows),
     tenants,
     timeseries: mapTimeseries(seriesRows, granularity),
   };
@@ -110,6 +120,22 @@ function mapGeo(rows: unknown[][]): GeoCity[] {
       lon: num(r[3]),
       visitors: num(r[4]),
     }));
+}
+
+// Row shape Query G: [path, pageviews, visitors]
+function mapPages(rows: unknown[][]): PageRow[] {
+  return rows.map((r) => ({
+    path: String(r[0] ?? "/"),
+    pageviews: num(r[1]),
+    visitors: num(r[2]),
+  }));
+}
+
+// Row shape Query H: [device, visitors]
+function mapDevices(rows: unknown[][]): DeviceRow[] {
+  return rows
+    .filter((r) => num(r[1]) > 0)
+    .map((r) => ({ device: String(r[0] ?? "Altro"), visitors: num(r[1]) }));
 }
 
 // Row shape Query F: [source, visitors]
