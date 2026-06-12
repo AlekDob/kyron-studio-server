@@ -106,7 +106,7 @@ export function renderReportHtml(o: AnalyticsOverview, dateLabel: string): strin
     <tr><td align="center" style="padding:32px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#FFFFFF;border-radius:12px;">
         <tr><td style="padding:36px 40px 8px;">
-          <img src="https://kyronedu.it/kyron-logo.png" alt="Kyron" width="110" style="display:block;border:0;outline:none;">
+          <img src="cid:kyron-logo" alt="Kyron" width="110" style="display:block;border:0;outline:none;">
         </td></tr>
         <tr><td style="padding:20px 40px 0;font-family:Helvetica,Arial,sans-serif;font-size:24px;line-height:1.3;font-weight:700;color:${TEAL};">
           Report di ${dateLabel}
@@ -138,10 +138,28 @@ export function renderReportHtml(o: AnalyticsOverview, dateLabel: string): strin
 </html>`;
 }
 
+// Logo come allegato INLINE (cid): i client che bloccano i contenuti remoti
+// (Apple Mail privacy, Outlook) non caricano le immagini via URL — il cid
+// viaggia dentro la mail e si vede sempre. Cache in memoria, fetch una volta.
+let logoCache: string | null = null;
+
+async function fetchLogoBase64(): Promise<string | null> {
+  if (logoCache) return logoCache;
+  try {
+    const res = await fetch("https://kyronedu.it/kyron-logo.png");
+    if (!res.ok) return null;
+    logoCache = Buffer.from(await res.arrayBuffer()).toString("base64");
+    return logoCache;
+  } catch {
+    return null;
+  }
+}
+
 // Invio via Resend REST (dominio kyronedu.it verificato; pattern kyron-resend).
 async function sendEmail(subject: string, html: string): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("RESEND_API_KEY missing");
+  const logo = await fetchLogoBase64();
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -154,7 +172,20 @@ async function sendEmail(subject: string, html: string): Promise<void> {
       reply_to: "info@kyronedu.it",
       to: reportRecipients(),
       subject,
-      html,
+      // Se il logo non e' recuperabile, fallback all'URL remoto.
+      html: logo
+        ? html
+        : html.replace("cid:kyron-logo", "https://kyronedu.it/kyron-logo.png"),
+      attachments: logo
+        ? [
+            {
+              filename: "kyron-logo.png",
+              content: logo,
+              content_id: "kyron-logo",
+              content_type: "image/png",
+            },
+          ]
+        : undefined,
     }),
   });
   if (!res.ok) {
