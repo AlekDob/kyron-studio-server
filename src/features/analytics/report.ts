@@ -29,8 +29,10 @@ function deltaLabel(cur: number, prev: number): string {
   return `<span style="color:${color}">${pct > 0 ? "+" : ""}${pct}%</span>`;
 }
 
+const FONT = "Helvetica,Arial,sans-serif";
+
 function kpiCell(label: string, value: string, delta: string): string {
-  return `<td style="padding:10px 12px;border:1px solid #e3e9e8;border-radius:8px">
+  return `<td style="padding:10px 12px;border:1px solid #e3e9e8;border-radius:8px;font-family:${FONT}">
     <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:${MUTED}">${label}</div>
     <div style="font-size:22px;font-weight:600;color:${TEAL}">${value} <span style="font-size:12px;font-weight:500">${delta}</span></div>
   </td>`;
@@ -62,12 +64,12 @@ function listSection(title: string, rows: Array<[string, number]>): string {
   const items = rows
     .map(
       ([label, value]) => `<tr>
-        <td style="padding:6px 0;font-size:14px;color:#1f2a29;border-bottom:1px solid #eef2f1">${label}</td>
-        <td align="right" style="padding:6px 0;font-size:14px;font-weight:600;color:${TEAL};border-bottom:1px solid #eef2f1">${fmtInt.format(value)}</td>
+        <td style="padding:6px 0;font-family:${FONT};font-size:14px;color:${TEAL};border-bottom:1px solid #eef2f1">${label}</td>
+        <td align="right" style="padding:6px 0;font-family:${FONT};font-size:14px;font-weight:600;color:${TEAL};border-bottom:1px solid #eef2f1">${fmtInt.format(value)}</td>
       </tr>`,
     )
     .join("");
-  return `<h3 style="margin:24px 0 6px;font-size:15px;color:${TEAL}">${title}</h3>
+  return `<h3 style="margin:24px 0 6px;font-family:${FONT};font-size:15px;color:${TEAL}">${title}</h3>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${items}</table>`;
 }
 
@@ -86,27 +88,54 @@ export function renderReportHtml(o: AnalyticsOverview, dateLabel: string): strin
     .slice(0, 6)
     .map((t): [string, number] => [t.label, t.visitors]);
 
-  return `<!doctype html><html lang="it"><body style="margin:0;background:#f4f5f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px 12px">
-    <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;padding:8px">
-      <tr><td style="padding:24px 28px 8px">
-        <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:${MUTED}">kyron &middot; report giornaliero</div>
-        <h1 style="margin:6px 0 0;font-size:22px;color:${TEAL}">Analytics di ${dateLabel}</h1>
-        <p style="margin:6px 0 0;font-size:13px;color:${MUTED}">Confronto con il giorno precedente. Sito kyronedu.it + shop e portali scuola.</p>
-      </td></tr>
-      <tr><td style="padding:16px 28px 4px">${kpiTable(o)}</td></tr>
-      <tr><td style="padding:0 28px 8px">
-        ${listSection("Pagine piu' visitate", pages)}
-        ${listSection("Fonti delle visite", sources)}
-        ${listSection("Citta'", cities)}
-        ${listSection("Origini", tenants)}
-      </td></tr>
-      <tr><td style="padding:16px 28px 24px">
-        <a href="https://studio.kyronedu.it/analytics?range=yesterday&app=all" style="display:inline-block;background:${TEAL};color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:999px">Apri in Studio</a>
-        <p style="margin:16px 0 0;font-size:12px;color:${MUTED}">— Studio Kyron, report automatico delle 09:00</p>
-      </td></tr>
-    </table>
-  </td></tr></table></body></html>`;
+  // Layout dal template ufficiale della skill kyron-email: canvas #F4F5F5,
+  // card bianca 600px, logo header 110px, font Helvetica, stile tutto inline.
+  const preview = `${fmtInt.format(o.totals.visitors)} visitatori, ${fmtInt.format(o.totals.pageviews)} pageview, ${fmtInt.format(o.totals.orders)} ordini`;
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Report Kyron &mdash; ${dateLabel}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F4F5F5;">
+  <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+    ${preview}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F4F5F5;">
+    <tr><td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#FFFFFF;border-radius:12px;">
+        <tr><td style="padding:36px 40px 8px;">
+          <img src="https://kyronedu.it/kyron-logo.png" alt="Kyron" width="110" style="display:block;border:0;outline:none;">
+        </td></tr>
+        <tr><td style="padding:20px 40px 0;font-family:Helvetica,Arial,sans-serif;font-size:24px;line-height:1.3;font-weight:700;color:${TEAL};">
+          Report di ${dateLabel}
+        </td></tr>
+        <tr><td style="padding:8px 40px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:${MUTED};">
+          Confronto col giorno precedente. Sito kyronedu.it + shop e portali scuola.
+        </td></tr>
+        <tr><td style="padding:20px 40px 4px;">${kpiTable(o)}</td></tr>
+        <tr><td style="padding:0 40px 8px;font-family:Helvetica,Arial,sans-serif;">
+          ${listSection("Pagine pi&ugrave; visitate", pages)}
+          ${listSection("Fonti delle visite", sources)}
+          ${listSection("Citt&agrave;", cities)}
+          ${listSection("Origini", tenants)}
+        </td></tr>
+        <tr><td style="padding:28px 40px 4px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <tr><td style="background-color:${TEAL};border-radius:8px;">
+              <a href="https://studio.kyronedu.it/analytics?range=yesterday&app=all" style="display:inline-block;padding:13px 24px;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#FFFFFF;text-decoration:none;">Apri in Studio</a>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:24px 40px 36px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:${MUTED};">
+          &mdash; Il team Kyron<br>Report automatico di Studio, ogni giorno alle 09:00.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 }
 
 // Invio via Resend REST (dominio kyronedu.it verificato; pattern kyron-resend).
@@ -119,8 +148,10 @@ async function sendEmail(subject: string, html: string): Promise<void> {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
+    // Mittente standard transazionale Kyron (skill kyron-email/kyron-resend).
     body: JSON.stringify({
-      from: "Studio Kyron <studio@kyronedu.it>",
+      from: "Kyron <web@kyronedu.it>",
+      reply_to: "info@kyronedu.it",
       to: reportRecipients(),
       subject,
       html,
