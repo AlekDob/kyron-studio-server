@@ -106,7 +106,7 @@ export function renderReportHtml(o: AnalyticsOverview, dateLabel: string): strin
     <tr><td align="center" style="padding:32px 16px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#FFFFFF;border-radius:12px;">
         <tr><td style="padding:36px 40px 8px;">
-          <img src="cid:kyron-logo" alt="Kyron" width="110" style="display:block;border:0;outline:none;">
+          <img src="cid:kyron-logo" alt="Kyron" width="110" style="display:block;width:110px;max-width:110px;height:auto;border:0;outline:none;">
         </td></tr>
         <tr><td style="padding:20px 40px 0;font-family:Helvetica,Arial,sans-serif;font-size:24px;line-height:1.3;font-weight:700;color:${TEAL};">
           Report di ${dateLabel}
