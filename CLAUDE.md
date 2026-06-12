@@ -94,7 +94,12 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /auth/resolve?email=              → allowlist + ruolo PRE-login (X-Tenant, no cookie) — feature 008
 /auth/me                          → utente loggato + ruolo (X-Tenant + kyron-rev) — feature 008
 /api/v1/studio-users              → CRUD utenti Studio (ADMIN-ONLY) — feature 008
+/api/v1/analytics/overview        → KPI PostHog (range today..90d, prev, geo, fonti, pagine, device) — feature 005
+/api/v1/analytics/report/send     → trigger manuale report email (ADMIN-ONLY) — feature 005
 ```
+
+Il report email giornaliero (09:00 Europe/Rome, scheduler in-process armato in `index.ts`)
+e' documentato in feature 005 §Report.
 
 ## Auth
 
@@ -116,12 +121,17 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `TENANT_KYRON_PAYLOAD_API_URL` | URL Payload REST (default `http://localhost:3000/api`) |
 | `TENANT_KYRON_PAYLOAD_API_KEY` | API Key utente service in Payload (collection users, `useAPIKey: true`) |
 | `OPENAI_API_KEY` | chiave OpenAI per agente |
+| `POSTHOG_API_KEY` / `POSTHOG_PROJECT_ID` / `POSTHOG_HOST` | Query API analytics (feature 005) |
+| `RESEND_API_KEY` | invio report email (stessa key del cms) |
+| `ANALYTICS_REPORT_ENABLED` | `true` arma il report giornaliero delle 09:00 |
+| `ANALYTICS_REPORT_TO` | CSV destinatari report (default info@kyronedu.it + gmail@alekdob.com) |
 
 ## Knowledge base
 
 - `documentation/features/001-bff-gateway.md` — gateway Payload REST normalizzato
 - `documentation/features/002-data-editor-agent.md` — agente AI multi-tool
 - `documentation/features/003-review-editor-agent.md` — agente AI Review Editor (workstream 03)
+- `documentation/features/005-analytics-gateway.md` — gateway PostHog HogQL (range calendario, confronti, geo/fonti/pagine/device, report email 09:00) — decision-017
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`
 - Workstream 03: `Kyron/documentation/workstreams/03-studio-standalone.md`
