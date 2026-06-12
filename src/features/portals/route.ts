@@ -9,6 +9,8 @@ import {
   updateBundleInPortal,
   removeBundleFromPortal,
 } from "./writer.js";
+import { enablePortal } from "./enable/enable.js";
+import { notifyPortalLive } from "./enable/notify.js";
 
 export const portalsRoute = new Hono();
 
@@ -32,6 +34,25 @@ portalsRoute.get("/:slug", async (c) => {
   const portal = await getPortal(c.req.param("slug"));
   if (!portal) return c.json({ error: "not found" }, 404);
   return c.json(portal);
+});
+
+// Fase B pipeline onboarding: seed Saleor server-side (staging+prod di default).
+// Idempotente, rilanciabile. Al termine aggiorna Payload (onboarded+channelId)
+// e invia la mail "portale live" (best-effort, non blocca l'enable).
+portalsRoute.post("/:slug/enable", async (c) => {
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      targets?: Array<"staging" | "prod">;
+    };
+    const targets =
+      body.targets && body.targets.length > 0 ? body.targets : undefined;
+    const report = await enablePortal(c.req.param("slug"), targets);
+    const emailSent = await notifyPortalLive(c.req.param("slug"), report);
+    return c.json({ ...report, emailSent });
+  } catch (err) {
+    const { status, body } = errorResponse(err);
+    return c.json(body, status);
+  }
 });
 
 portalsRoute.put("/:slug", async (c) => {
