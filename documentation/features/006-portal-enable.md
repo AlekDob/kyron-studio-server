@@ -46,6 +46,17 @@ Claude Code locale -> seed CLI" con un click in Studio.
 | `studio/src/app/api/portals/[slug]/enable/route.ts` | proxy (maxDuration 180) |
 | `studio/src/lib/gateway.ts` | `enablePortalOnSaleor()` |
 
+## Tool agente (modifiche commerciali, 2026-06-12)
+
+| Tool | Scopo |
+|---|---|
+| `update_catalog` | sostituisce visibleSlugs e/o visibleVariants (liste complete) |
+| `update_discounts` | sostituisce productDiscounts con sanity vs listino (eur=prezzo FINALE, percent 1-90) |
+| `apply_to_saleor` | enablePortal su staging+prod; mail go-live solo al primo publish; report con sconti_attivi |
+
+L'enable e' DECLARATIVO: i prodotti sul channel non piu' nel piano vengono
+`hidden-blocked` (riconciliazione rimozioni). Writer: `patchPortalCatalog`.
+
 ## Test
 
 `tests/features/portals-enable-config.test.ts` — mapping selection + convenzione
