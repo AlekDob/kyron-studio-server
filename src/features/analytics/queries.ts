@@ -142,6 +142,48 @@ ORDER BY bucket ASC
 `.trim();
 }
 
+// Query E — geografia visitatori: citta' + coordinate GeoIP (auto-capture
+// PostHog). city '' = posizione non rilevata (GeoIP solo a livello paese).
+// Colonne: [city, country, lat, lon, visitors]
+export function geoQuery(range: RangeKey): string {
+  const w = RANGE_WINDOWS[range];
+  return `
+SELECT
+  coalesce(properties.$geoip_city_name, '') AS city,
+  coalesce(properties.$geoip_country_code, '') AS country,
+  round(any(toFloat(properties.$geoip_latitude)), 3) AS lat,
+  round(any(toFloat(properties.$geoip_longitude)), 3) AS lon,
+  uniq(distinct_id) AS visitors
+FROM events
+WHERE ${currentWhere(w)}
+  AND event = '$pageview'
+  AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
+GROUP BY city, country
+ORDER BY visitors DESC
+LIMIT 60
+`.trim();
+}
+
+// Query F — fonti delle visite: utm_source se presente, altrimenti
+// referring domain ('$direct' = traffico diretto). Colonne: [source, visitors]
+export function sourcesQuery(range: RangeKey): string {
+  const w = RANGE_WINDOWS[range];
+  return `
+SELECT
+  coalesce(nullIf(properties.utm_source, ''), nullIf(properties.$referring_domain, ''), '$direct') AS source,
+  uniq(distinct_id) AS visitors
+FROM events
+WHERE ${currentWhere(w)}
+  AND event = '$pageview'
+  AND properties.app IN ('cms', 'storefront')
+  AND properties.$host IN (${PROD_HOSTS})
+GROUP BY source
+ORDER BY visitors DESC
+LIMIT 20
+`.trim();
+}
+
 // Query D — totali del PERIODO PRECEDENTE per il confronto, grouped by app
 // (bastano i totali: il confronto vive sulle card KPI, non per-tenant).
 // Colonne: [app, pageviews, visitors, added_to_cart, checkouts, orders,

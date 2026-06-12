@@ -4,16 +4,20 @@ import { runHogql } from "./posthog.js";
 import {
   RANGE_WINDOWS,
   breakdownQuery,
+  geoQuery,
   leadsQuery,
   prevTotalsQuery,
+  sourcesQuery,
   timeseriesQuery,
 } from "./queries.js";
 import {
   type AnalyticsOverview,
   type AppKey,
+  type GeoCity,
   type KpiTotals,
   type LeadTotals,
   type PrevTotals,
+  type SourceRow,
   type RangeKey,
   RANGE_DAYS,
   type TenantRow,
@@ -56,14 +60,23 @@ export async function getOverview(range: RangeKey): Promise<AnalyticsOverview> {
 
 async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
   const granularity = RANGE_WINDOWS[range].granularity;
-  const [breakdownRows, seriesRows, leadsRows, prevRows, portalNames] =
-    await Promise.all([
-      runHogql(breakdownQuery(range)),
-      runHogql(timeseriesQuery(range)),
-      runHogql(leadsQuery(range)),
-      runHogql(prevTotalsQuery(range)),
-      loadPortalNames(),
-    ]);
+  const [
+    breakdownRows,
+    seriesRows,
+    leadsRows,
+    prevRows,
+    geoRows,
+    sourcesRows,
+    portalNames,
+  ] = await Promise.all([
+    runHogql(breakdownQuery(range)),
+    runHogql(timeseriesQuery(range)),
+    runHogql(leadsQuery(range)),
+    runHogql(prevTotalsQuery(range)),
+    runHogql(geoQuery(range)),
+    runHogql(sourcesQuery(range)),
+    loadPortalNames(),
+  ]);
 
   const tenants = buildTenants(breakdownRows, portalNames);
   const byApp = sumByApp(tenants);
@@ -79,9 +92,31 @@ async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
     byApp,
     leads: buildLeads(leadsRows),
     prev: buildPrev(prevRows),
+    geo: mapGeo(geoRows),
+    sources: mapSources(sourcesRows),
     tenants,
     timeseries: mapTimeseries(seriesRows, granularity),
   };
+}
+
+// Row shape Query E: [city, country, lat, lon, visitors]
+function mapGeo(rows: unknown[][]): GeoCity[] {
+  return rows
+    .filter((r) => num(r[4]) > 0)
+    .map((r) => ({
+      city: String(r[0] ?? "") || null,
+      country: String(r[1] ?? ""),
+      lat: num(r[2]),
+      lon: num(r[3]),
+      visitors: num(r[4]),
+    }));
+}
+
+// Row shape Query F: [source, visitors]
+function mapSources(rows: unknown[][]): SourceRow[] {
+  return rows
+    .filter((r) => num(r[1]) > 0)
+    .map((r) => ({ source: String(r[0] ?? "$direct"), visitors: num(r[1]) }));
 }
 
 // from indicativo per lo zero-fill del chart: per i range di calendario

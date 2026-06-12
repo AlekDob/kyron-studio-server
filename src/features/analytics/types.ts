@@ -88,6 +88,21 @@ export interface PrevTotals {
   leads: { formSubmits: number; newsletterSubs: number; registrations: number };
 }
 
+// Citta' dei visitatori (GeoIP PostHog). city null = non rilevata.
+export interface GeoCity {
+  city: string | null;
+  country: string;
+  lat: number;
+  lon: number;
+  visitors: number;
+}
+
+// Fonte di traffico: utm_source o referring domain; "$direct" = diretto.
+export interface SourceRow {
+  source: string;
+  visitors: number;
+}
+
 export interface AnalyticsOverview {
   range: RangeKey;
   from: string;
@@ -101,6 +116,8 @@ export interface AnalyticsOverview {
   byApp: Record<AppKey, KpiTotals>;
   leads: LeadTotals;
   prev: PrevTotals;
+  geo: GeoCity[];
+  sources: SourceRow[];
   tenants: TenantRow[];
   timeseries: TimeseriesPoint[];
 }
