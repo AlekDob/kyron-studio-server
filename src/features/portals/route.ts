@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
+import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { listPortals, getPortal } from "./reader.js";
 import { fetchSaleorProducts } from "@/core/saleor/client.js";
 import {
@@ -13,6 +15,13 @@ import { enablePortal } from "./enable/enable.js";
 import { notifyPortalLive } from "./enable/notify.js";
 
 export const portalsRoute = new Hono();
+
+// SECURITY (2026-06-12): la route era montata SENZA middleware — list, update,
+// delete, logo upload e enable erano pubblici. Stesso pattern di collections:
+// X-Tenant + cookie kyron-rev HMAC. Il frontend Studio passa entrambi via
+// gateway server-side, niente cambia per i client legittimi.
+portalsRoute.use("*", tenantMiddleware);
+portalsRoute.use("*", studioAuthMiddleware);
 
 function errorResponse(err: unknown): { status: 400 | 404; body: { error: string } } {
   const msg = err instanceof Error ? err.message : "request failed";
