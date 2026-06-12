@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLeads, buildTenants } from "@/features/analytics/service.js";
+import { buildLeads, buildPrev, buildTenants } from "@/features/analytics/service.js";
 
 // Row shape Query A: [app, school_slug, pageviews, visitors, added_to_cart,
 // checkouts_started, orders, revenue]
@@ -113,5 +113,30 @@ describe("buildLeads", () => {
       registrations: 0,
       forms: [],
     });
+  });
+});
+
+// Row shape Query D: [app, pageviews, visitors, carts, checkouts, orders,
+// revenue, form_submits, newsletter_subs, registrations]
+describe("buildPrev", () => {
+  it("aggrega i totali del periodo precedente per app + lead globali", () => {
+    const prev = buildPrev([
+      ["cms", 100, 40, 0, 0, 0, 0, 3, 1, 0],
+      ["storefront", 50, 20, 5, 4, 2, 150.555, 1, 0, 2],
+    ]);
+    expect(prev.byApp.cms.visitors).toBe(40);
+    expect(prev.byApp.storefront.revenueEur).toBe(150.56);
+    expect(prev.totals.visitors).toBe(60);
+    expect(prev.leads).toEqual({
+      formSubmits: 4,
+      newsletterSubs: 1,
+      registrations: 2,
+    });
+  });
+
+  it("zero-filled senza righe", () => {
+    const prev = buildPrev([]);
+    expect(prev.totals.visitors).toBe(0);
+    expect(prev.leads.formSubmits).toBe(0);
   });
 });

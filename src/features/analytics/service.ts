@@ -1,12 +1,19 @@
 import { listPortals } from "@/features/portals/reader.js";
 import { makeTtlCache } from "./cache.js";
 import { runHogql } from "./posthog.js";
-import { breakdownQuery, leadsQuery, timeseriesQuery } from "./queries.js";
+import {
+  RANGE_WINDOWS,
+  breakdownQuery,
+  leadsQuery,
+  prevTotalsQuery,
+  timeseriesQuery,
+} from "./queries.js";
 import {
   type AnalyticsOverview,
   type AppKey,
   type KpiTotals,
   type LeadTotals,
+  type PrevTotals,
   type RangeKey,
   RANGE_DAYS,
   type TenantRow,
@@ -48,29 +55,49 @@ export async function getOverview(range: RangeKey): Promise<AnalyticsOverview> {
 }
 
 async function fillOverview(range: RangeKey): Promise<AnalyticsOverview> {
-  const days = RANGE_DAYS[range];
-  const [breakdownRows, seriesRows, leadsRows, portalNames] = await Promise.all([
-    runHogql(breakdownQuery(days)),
-    runHogql(timeseriesQuery(days)),
-    runHogql(leadsQuery(days)),
-    loadPortalNames(),
-  ]);
+  const granularity = RANGE_WINDOWS[range].granularity;
+  const [breakdownRows, seriesRows, leadsRows, prevRows, portalNames] =
+    await Promise.all([
+      runHogql(breakdownQuery(range)),
+      runHogql(timeseriesQuery(range)),
+      runHogql(leadsQuery(range)),
+      runHogql(prevTotalsQuery(range)),
+      loadPortalNames(),
+    ]);
 
   const tenants = buildTenants(breakdownRows, portalNames);
   const byApp = sumByApp(tenants);
   const now = new Date();
   return {
     range,
-    from: isoDay(new Date(now.getTime() - days * 86_400_000)),
+    from: rangeFrom(range, now),
     to: isoDay(now),
     generatedAt: now.toISOString(),
+    granularity,
     stale: false,
     totals: sumKpis([byApp.cms, byApp.storefront]),
     byApp,
     leads: buildLeads(leadsRows),
+    prev: buildPrev(prevRows),
     tenants,
-    timeseries: mapTimeseries(seriesRows),
+    timeseries: mapTimeseries(seriesRows, granularity),
   };
+}
+
+// from indicativo per lo zero-fill del chart: per i range di calendario
+// usa il confine vero (giorno/lunedi'/primo del mese), per i rolling i giorni.
+function rangeFrom(range: RangeKey, now: Date): string {
+  if (range === "today") return isoDay(now);
+  if (range === "yesterday")
+    return isoDay(new Date(now.getTime() - 86_400_000));
+  if (range === "week") {
+    const d = new Date(now);
+    // getUTCDay(): 0=domenica → lunedi' della settimana corrente.
+    const shift = (d.getUTCDay() + 6) % 7;
+    return isoDay(new Date(d.getTime() - shift * 86_400_000));
+  }
+  if (range === "month") return `${isoDay(now).slice(0, 8)}01`;
+  return isoDay(new Date(now.getTime() - RANGE_DAYS[range] * 86_400_000));
 }
 
 // Esportata per i test: aggrega le righe [event, form, count] della
@@ -200,17 +227,50 @@ function sumByApp(tenants: TenantRow[]): Record<AppKey, KpiTotals> {
   };
 }
 
-function mapTimeseries(rows: unknown[][]): TimeseriesPoint[] {
+// Bucket "day" → "YYYY-MM-DD"; bucket "hour" → "YYYY-MM-DDTHH" (il client
+// formatta l'etichetta oraria).
+function mapTimeseries(
+  rows: unknown[][],
+  granularity: "hour" | "day",
+): TimeseriesPoint[] {
+  const len = granularity === "hour" ? 13 : 10;
   return rows
     .filter((r) => r[1] === "cms" || r[1] === "storefront")
     .map((r) => ({
-      date: String(r[0]).slice(0, 10),
+      date: String(r[0]).slice(0, len),
       app: r[1] as AppKey,
       pageviews: num(r[2]),
       visitors: num(r[3]),
       orders: num(r[4]),
       revenueEur: Math.round(num(r[5]) * 100) / 100,
     }));
+}
+
+// Esportata per i test: parse delle righe Query D (periodo precedente).
+// Row shape: [app, pageviews, visitors, carts, checkouts, orders, revenue,
+//             form_submits, newsletter_subs, registrations]
+export function buildPrev(rows: unknown[][]): PrevTotals {
+  const byApp: Record<AppKey, KpiTotals> = {
+    cms: emptyTotals(),
+    storefront: emptyTotals(),
+  };
+  const leads = { formSubmits: 0, newsletterSubs: 0, registrations: 0 };
+  for (const r of rows) {
+    const app = r[0];
+    if (app !== "cms" && app !== "storefront") continue;
+    byApp[app] = {
+      pageviews: num(r[1]),
+      visitors: num(r[2]),
+      addedToCart: num(r[3]),
+      checkoutsStarted: num(r[4]),
+      orders: num(r[5]),
+      revenueEur: Math.round(num(r[6]) * 100) / 100,
+    };
+    leads.formSubmits += num(r[7]);
+    leads.newsletterSubs += num(r[8]);
+    leads.registrations += num(r[9]);
+  }
+  return { totals: sumKpis([byApp.cms, byApp.storefront]), byApp, leads };
 }
 
 function isoDay(d: Date): string {

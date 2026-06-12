@@ -2,14 +2,40 @@
 // Shape del payload servito a Studio: KPI totali + per-app + breakdown
 // per tenant (sito / shop principale / portali scuola) + timeseries.
 
-export type RangeKey = "7d" | "30d" | "90d";
-export type AppKey = "cms" | "storefront";
+// Periodi standard (oggi/ieri/settimana/mese, confini di calendario) +
+// finestre rolling 7/30/90 giorni. Le finestre HogQL vivono in queries.ts.
+export type RangeKey =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "7d"
+  | "30d"
+  | "90d";
 
+export const RANGE_KEYS: RangeKey[] = [
+  "today",
+  "yesterday",
+  "week",
+  "month",
+  "7d",
+  "30d",
+  "90d",
+];
+
+// Giorni APPROSSIMATIVI per range: servono solo per calcolare from/to
+// indicativi nel payload (zero-fill del chart lato client).
 export const RANGE_DAYS: Record<RangeKey, number> = {
+  today: 1,
+  yesterday: 1,
+  week: 7,
+  month: 31,
   "7d": 7,
   "30d": 30,
   "90d": 90,
 };
+
+export type AppKey = "cms" | "storefront";
 
 export interface KpiTotals {
   visitors: number;
@@ -54,16 +80,27 @@ export function emptyLeads(): LeadTotals {
   return { formSubmits: 0, newsletterSubs: 0, registrations: 0, forms: [] };
 }
 
+// Totali del periodo precedente (stessa durata trascorsa, subito prima):
+// alimentano i delta sulle card KPI. Solo totali per-app, niente tenant.
+export interface PrevTotals {
+  totals: KpiTotals;
+  byApp: Record<AppKey, KpiTotals>;
+  leads: { formSubmits: number; newsletterSubs: number; registrations: number };
+}
+
 export interface AnalyticsOverview {
   range: RangeKey;
   from: string;
   to: string;
   generatedAt: string;
+  // "hour" per Oggi/Ieri (timeseries oraria), altrimenti "day".
+  granularity: "hour" | "day";
   // true se servito dal fallback stale-on-error (PostHog irraggiungibile).
   stale: boolean;
   totals: KpiTotals;
   byApp: Record<AppKey, KpiTotals>;
   leads: LeadTotals;
+  prev: PrevTotals;
   tenants: TenantRow[];
   timeseries: TimeseriesPoint[];
 }
