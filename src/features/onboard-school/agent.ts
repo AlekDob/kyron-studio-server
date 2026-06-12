@@ -8,6 +8,7 @@ import {
   pendingSchoolSlugExists,
   writePendingSchoolMarkdown,
 } from "./markdown-writer.js";
+import { normalizePendingSchool } from "./normalize.js";
 import { fetchSaleorProducts } from "@/core/saleor/client.js";
 import { listPortals, resolvePortal } from "@/features/portals/reader.js";
 import {
@@ -311,14 +312,33 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
                   : doc.catalog.productDiscounts,
             };
           }
-          const res = await writePendingSchoolMarkdown(doc, opts.userEmail);
+          // Fase A pipeline: normalizza contro il catalogo Saleor reale (SKU case,
+          // protection plan hidden, coerenza heroOutsideBundle, sanity sconti eur).
+          const normalized = await normalizePendingSchool(doc);
+          if (normalized.errors.length > 0) {
+            return {
+              error: "Descriptor non valido, NON salvato. Correggi e riprova.",
+              details: normalized.errors,
+              autoFixes: normalized.fixes,
+            };
+          }
+          const res = await writePendingSchoolMarkdown(normalized.doc, opts.userEmail);
+          const fixNote =
+            normalized.fixes.length > 0
+              ? ` Correzioni automatiche applicate: ${normalized.fixes.join("; ")}.`
+              : "";
+          const skipNote = normalized.skippedValidation
+            ? " ATTENZIONE: Saleor irraggiungibile, validazione catalogo saltata."
+            : "";
           return {
             id: res.slug,
             filePath: res.filePath,
             overwrote: res.alreadyExisted,
-            message: res.alreadyExisted
-              ? `Aggiornato ${res.filePath} (esisteva gia').`
-              : `Salvato ${res.filePath}. Alek lo committera' in kyron-ecommerce.`,
+            autoFixes: normalized.fixes,
+            message:
+              (res.alreadyExisted
+                ? `Aggiornato ${res.filePath} (esisteva gia').`
+                : `Salvato ${res.filePath}.`) + fixNote + skipNote,
           };
         },
       }),
