@@ -36,6 +36,7 @@ const portal = {
 const report: EnableReport = {
   slug: portal.slug,
   payloadUpdated: true,
+  normalizationFixes: [],
   targets: (["staging", "prod"] as const).map((target) => ({
     target,
     channelId: "Q2hhbm5lbDo3",

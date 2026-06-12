@@ -5,6 +5,7 @@
 // Con Fase C (registry runtime da Payload) il portale e' live senza rebuild.
 import { getPortalsGateway, PORTALS_COLLECTION } from "../gateway.js";
 import { getPortal, findPortalDoc, type PortalDetail } from "../reader.js";
+import { normalizePendingSchool } from "@/features/onboard-school/normalize.js";
 import { toEnableConfig, type EnablePortalConfig } from "./config.js";
 import {
   ensureChannel,
@@ -38,6 +39,9 @@ export interface EnableReport {
   slug: string;
   targets: TargetReport[];
   payloadUpdated: boolean;
+  // Correzioni auto-applicate dalla normalizzazione pre-enable (Fase A sui
+  // doc storici/modificati: SKU case, protection plan hidden, hero bundle-only).
+  normalizationFixes: string[];
 }
 
 interface PubPlan {
@@ -259,13 +263,22 @@ async function enableOnTarget(
   return report;
 }
 
-async function markOnboarded(portal: PortalDetail, channelId: string): Promise<boolean> {
+async function markOnboarded(
+  portal: PortalDetail,
+  channelId: string,
+  config: EnablePortalConfig,
+): Promise<boolean> {
   const doc = await findPortalDoc(portal.slug);
   if (!doc) return false;
   const gw = getPortalsGateway();
+  // Persiste anche il catalogo/bundles NORMALIZZATI: il doc Payload guarisce
+  // (i doc storici pre-Fase A avevano SKU minuscoli, protection plan visibili,
+  // visibleVariants contraddittori) e resta allineato a cio' che e' su Saleor.
   await gw.update(PORTALS_COLLECTION, String(doc.id), {
     status: "onboarded",
     channelId,
+    catalog: config.catalog,
+    bundles: config.bundles,
   });
   return true;
 }
@@ -276,7 +289,23 @@ export async function enablePortal(
 ): Promise<EnableReport> {
   const portal = await getPortal(slug);
   if (!portal) throw new Error(`Portale "${slug}" non trovato`);
-  const config = toEnableConfig(portal);
+  const parsed = toEnableConfig(portal);
+  // Normalizzazione pre-enable: i doc Payload storici (o modificati a mano)
+  // possono avere il catalogo non corretto (SKU minuscoli, protection plan
+  // visibili, visibleVariants vs heroOutsideBundle). Stesse regole del save
+  // dell'agente; gli errori bloccano PRIMA di toccare Saleor.
+  const normalized = await normalizePendingSchool({
+    catalog: { ...parsed.catalog, productDiscounts: parsed.catalog.productDiscounts },
+    bundles: parsed.bundles,
+  });
+  if (normalized.errors.length > 0) {
+    throw new Error(`Descriptor non valido: ${normalized.errors.join(" | ")}`);
+  }
+  const config: EnablePortalConfig = {
+    ...parsed,
+    catalog: { ...parsed.catalog, ...normalized.doc.catalog },
+    bundles: normalized.doc.bundles as EnablePortalConfig["bundles"],
+  };
   const reports: TargetReport[] = [];
   for (const target of targets) {
     reports.push(await enableOnTarget(config, target));
@@ -291,6 +320,15 @@ export async function enablePortal(
         .join(", ")} — verificare prima di andare live`,
     );
   }
-  const payloadUpdated = await markOnboarded(portal, reports[0]?.channelId ?? "");
-  return { slug, targets: reports, payloadUpdated };
+  const payloadUpdated = await markOnboarded(
+    portal,
+    reports[0]?.channelId ?? "",
+    config,
+  );
+  return {
+    slug,
+    targets: reports,
+    payloadUpdated,
+    normalizationFixes: normalized.fixes,
+  };
 }

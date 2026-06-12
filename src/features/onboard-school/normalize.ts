@@ -27,8 +27,16 @@ interface ProductIndex {
   variants: VariantIndex[];
 }
 
-export interface NormalizeResult {
-  doc: PendingSchool;
+// Sottoinsieme di PendingSchool su cui lavora la normalizzazione: cosi' anche
+// l'enable (Fase B) puo' normalizzare un PortalDetail gia' parsato, non solo
+// il save dell'agente (che passa il PendingSchool completo).
+export interface NormalizableSchool {
+  catalog: PendingSchool["catalog"];
+  bundles: PendingSchool["bundles"];
+}
+
+export interface NormalizeResult<T extends NormalizableSchool = PendingSchool> {
+  doc: T;
   fixes: string[]; // correzioni applicate automaticamente (da riferire all'operatore)
   errors: string[]; // blocchi: il save deve fallire e l'agente chiedere/correggere
   skippedValidation: boolean; // Saleor irraggiungibile: salvato senza validazione
@@ -102,7 +110,7 @@ export async function fetchCatalogIndex(): Promise<Map<string, ProductIndex>> {
 }
 
 // Tutti gli slug prodotto referenziati dal descriptor, per la verifica esistenza.
-function referencedSlugs(doc: PendingSchool): string[] {
+function referencedSlugs(doc: NormalizableSchool): string[] {
   const slugs = new Set<string>([
     ...doc.catalog.visibleSlugs,
     ...doc.catalog.hiddenSlugs,
@@ -114,7 +122,7 @@ function referencedSlugs(doc: PendingSchool): string[] {
 }
 
 function fixVariantSkuCase(
-  doc: PendingSchool,
+  doc: NormalizableSchool,
   index: Map<string, ProductIndex>,
   fixes: string[],
   errors: string[],
@@ -147,7 +155,7 @@ function fixVariantSkuCase(
 // I protection plan non vanno mai a catalogo: hidden-but-purchasable, il
 // cross-sell dello storefront li propone quando il device e' nel carrello.
 function hideProtectionPlans(
-  doc: PendingSchool,
+  doc: NormalizableSchool,
   index: Map<string, ProductIndex>,
   fixes: string[],
 ): void {
@@ -166,7 +174,7 @@ function hideProtectionPlans(
 // heroOutsideBundle:false = i device dei bundle si vendono SOLO nel kit.
 // L'operatore pero' spesso seleziona i tagli anche nel picker catalogo: la
 // selezione contraddittoria si risolve a favore del flag esplicito.
-function enforceHeroOutsideBundle(doc: PendingSchool, fixes: string[]): void {
+function enforceHeroOutsideBundle(doc: NormalizableSchool, fixes: string[]): void {
   if (doc.catalog.heroOutsideBundle) return;
   const bundleProducts = new Set(
     doc.bundles.flatMap((b) => b.components.map((c) => c.productSlug)),
@@ -194,7 +202,7 @@ function enforceHeroOutsideBundle(doc: PendingSchool, fixes: string[]): void {
 // `eur` = PREZZO FINALE, non sconto: un valore molto sotto il listino e' il
 // sintomo classico (es. AppleCare value:4 invece di 75).
 function checkDiscounts(
-  doc: PendingSchool,
+  doc: NormalizableSchool,
   index: Map<string, ProductIndex>,
   errors: string[],
 ): void {
@@ -220,9 +228,9 @@ function checkDiscounts(
   }
 }
 
-export async function normalizePendingSchool(
-  doc: PendingSchool,
-): Promise<NormalizeResult> {
+export async function normalizePendingSchool<T extends NormalizableSchool>(
+  doc: T,
+): Promise<NormalizeResult<T>> {
   const fixes: string[] = [];
   const errors: string[] = [];
   let index: Map<string, ProductIndex>;
