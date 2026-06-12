@@ -15,10 +15,12 @@ import {
   updatePortal,
   deletePortal,
   addBundleToPortal,
-  updatePortalCatalog,
+  patchPortalCatalog,
   updateBundleInPortal,
   removeBundleFromPortal,
 } from "@/features/portals/writer.js";
+import { enablePortal } from "@/features/portals/enable/enable.js";
+import { notifyPortalLive } from "@/features/portals/enable/notify.js";
 
 interface AgentRunOptions {
   tenant: TenantConfig;
@@ -484,14 +486,24 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       update_catalog: tool({
         description:
-          "Sostituisce l'intera lista catalog.visibleSlugs di un portale esistente. Usa per aggiungere/rimuovere prodotti dal catalogo visibile sul portale. Passa la nuova lista completa (non un diff).",
+          "Sostituisce le liste del catalogo di un portale esistente: visibleSlugs (prodotti interi) e/o visibleVariants (tagli capacita, es. iPad 128gb). Usa per aggiungere/rimuovere prodotti dal portale. Passa SEMPRE la lista completa del campo che tocchi (non un diff), null per i campi che non tocchi. Dopo le modifiche, ricorda all'utente di applicarle con apply_to_saleor.",
         parameters: z.object({
           portalSlug: z.string(),
           visibleSlugs: z
             .array(z.string())
-            .describe("nuova lista completa di slug prodotti visibili"),
+            .nullable()
+            .describe("nuova lista completa di slug prodotti visibili, o null"),
+          visibleVariants: z
+            .array(
+              z.object({
+                productSlug: z.string(),
+                value: z.string().describe("slug taglio capacita, es. '128gb'"),
+              }),
+            )
+            .nullable()
+            .describe("nuova lista completa dei tagli pubblicati, o null"),
         }),
-        execute: async ({ portalSlug, visibleSlugs }) => {
+        execute: async ({ portalSlug, visibleSlugs, visibleVariants }) => {
           const { portal, candidates } = await resolvePortal(portalSlug);
           if (!portal) {
             if (candidates.length > 1) {
@@ -502,11 +514,129 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             }
             return { error: `Portale "${portalSlug}" non trovato.` };
           }
-          const result = await updatePortalCatalog(portal.slug, visibleSlugs);
+          if (visibleSlugs == null && visibleVariants == null) {
+            return { error: "Nessuna lista da aggiornare." };
+          }
+          const result = await patchPortalCatalog(portal.slug, {
+            ...(visibleSlugs ? { visibleSlugs } : {}),
+            ...(visibleVariants
+              ? {
+                  visibleVariants: visibleVariants.map((v) => ({
+                    productSlug: v.productSlug,
+                    attribute: "capacita",
+                    value: v.value,
+                  })),
+                }
+              : {}),
+          });
           return {
             ...result,
-            message: `Catalogo ${portal.nome} aggiornato (${result.total} prodotti).`,
+            message: `Catalogo ${portal.nome} aggiornato (${result.updatedFields.join(", ")}). Le modifiche vanno applicate a Saleor con apply_to_saleor.`,
           };
+        },
+      }),
+      update_discounts: tool({
+        description:
+          "Sostituisce l'intera lista catalog.productDiscounts di un portale (cambi sconto richiesti dai commerciali). kind 'eur' = PREZZO FINALE in EUR (non lo sconto!); kind 'percent' = percentuale 1-90. capacity (es. '128gb') limita lo sconto a quel taglio. Passa la lista COMPLETA (non un diff: gli sconti omessi vengono rimossi). Dopo, applica con apply_to_saleor.",
+        parameters: z.object({
+          portalSlug: z.string(),
+          productDiscounts: z.array(
+            z.object({
+              slug: z.string(),
+              capacity: z.string().nullable().describe("slug taglio (es. '128gb') o null = prodotto intero"),
+              kind: z.enum(["percent", "eur"]),
+              value: z.number().positive(),
+            }),
+          ),
+        }),
+        execute: async ({ portalSlug, productDiscounts }) => {
+          const { portal, candidates } = await resolvePortal(portalSlug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${portalSlug}" e' ambiguo (${candidates.length} match).`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${portalSlug}" non trovato.` };
+          }
+          // Sanity contro i listini reali: 'eur' e' il prezzo FINALE — un valore
+          // molto sotto il listino e' quasi certamente uno sconto scritto male
+          // (gotcha-onboarding-productdiscount-final-price).
+          const products = await fetchSaleorProducts();
+          const errors: string[] = [];
+          for (const d of productDiscounts) {
+            const row = products.find((p) =>
+              d.capacity ? p.id === `${d.slug}#${d.capacity}` : p.id === d.slug,
+            );
+            if (!row) {
+              errors.push(`Prodotto "${d.slug}${d.capacity ? `#${d.capacity}` : ""}" non trovato su Saleor.`);
+              continue;
+            }
+            if (d.kind === "percent" && (d.value <= 0 || d.value > 90)) {
+              errors.push(`${d.slug}: percent ${d.value} fuori range 1-90.`);
+            }
+            if (d.kind === "eur" && d.value >= row.priceEur) {
+              errors.push(`${d.slug}: prezzo finale ${d.value} >= listino ${row.priceEur}.`);
+            }
+            if (d.kind === "eur" && d.value < row.priceEur * 0.3) {
+              errors.push(
+                `${d.slug}: ${d.value} EUR sembra uno SCONTO ma 'eur' e' il PREZZO FINALE (listino ${row.priceEur}). Conferma con l'utente il prezzo finale corretto.`,
+              );
+            }
+          }
+          if (errors.length > 0) return { error: "Sconti non validi, NON salvati.", details: errors };
+          const result = await patchPortalCatalog(portal.slug, { productDiscounts });
+          return {
+            ...result,
+            message: `Sconti di ${portal.nome} aggiornati (${productDiscounts.length}). Applicali con apply_to_saleor.`,
+          };
+        },
+      }),
+      apply_to_saleor: tool({
+        description:
+          "Applica lo stato corrente del portale (catalogo, tagli, sconti, bundle) a Saleor STAGING e PROD: seed idempotente + riconciliazione (i prodotti rimossi dal portale vengono nascosti dal channel). Operazione lunga (~30-90s). Usa DOPO update_catalog/update_discounts/update_bundle, o per il primo go-live. Chiedi conferma all'utente prima di chiamarlo.",
+        parameters: z.object({
+          portalSlug: z.string(),
+        }),
+        execute: async ({ portalSlug }) => {
+          const { portal, candidates } = await resolvePortal(portalSlug);
+          if (!portal) {
+            if (candidates.length > 1) {
+              return {
+                error: `"${portalSlug}" e' ambiguo (${candidates.length} match).`,
+                candidates: candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+              };
+            }
+            return { error: `Portale "${portalSlug}" non trovato.` };
+          }
+          try {
+            const firstGoLive = portal.status !== "onboarded";
+            const report = await enablePortal(portal.slug);
+            // Mail "portale live" solo al primo go-live, non ad ogni modifica.
+            const emailSent = firstGoLive
+              ? await notifyPortalLive(portal.slug, report)
+              : false;
+            return {
+              report: report.targets.map((t) => ({
+                target: t.target,
+                channelId: t.channelId,
+                prodotti: t.productsPublished,
+                promozioni: t.promotionsApplied,
+                voucher: Object.keys(t.vouchers).length,
+                sconti_attivi: t.promotionsOnSale,
+                steps: t.steps,
+              })),
+              emailSent,
+              message: `Portale ${portal.nome} applicato a Saleor (staging+prod).${
+                report.targets.some((t) => t.promotionsOnSale === false)
+                  ? " ATTENZIONE: sconti non ancora attivi (recalc Saleor in coda)."
+                  : ""
+              }${firstGoLive && emailSent ? " Mail di go-live inviata." : ""}`,
+            };
+          } catch (err) {
+            return { error: err instanceof Error ? err.message : "enable failed" };
+          }
         },
       }),
       update_bundle: tool({

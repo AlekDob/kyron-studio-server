@@ -131,24 +131,49 @@ export async function addBundleToPortal(
   return { ok: true, slug, bundleSlug: bundle.slug, total: next.length };
 }
 
+export interface CatalogPatch {
+  visibleSlugs?: string[];
+  visibleVariants?: Array<{ productSlug: string; attribute: string; value: string }>;
+  hiddenSlugs?: string[];
+  productDiscounts?: Array<{
+    slug: string;
+    capacity: string | null;
+    kind: "percent" | "eur";
+    value: number;
+  }>;
+}
+
+// Patch parziale del gruppo catalog: solo le chiavi passate vengono
+// sovrascritte, il resto (flag outsideBundle inclusi) resta intatto.
+// E' il writer unico per i cambi richiesti dai commerciali (sconti, prodotti,
+// tagli) — i tool dell'agente ci passano la lista COMPLETA del campo toccato.
+export async function patchPortalCatalog(
+  slug: string,
+  patch: CatalogPatch,
+): Promise<{ ok: boolean; slug: string; updatedFields: string[] }> {
+  const doc = await findPortalDoc(slug);
+  if (!doc) throw new Error(`portal "${slug}" not found`);
+  const currentCatalog = (doc.catalog as Record<string, unknown>) ?? {};
+  const updatedFields = Object.keys(patch);
+  if (updatedFields.length === 0) throw new Error("empty catalog patch");
+  const nextCatalog = {
+    ...currentCatalog,
+    ...(patch.visibleSlugs ? { visibleSlugs: [...new Set(patch.visibleSlugs)] } : {}),
+    ...(patch.visibleVariants ? { visibleVariants: patch.visibleVariants } : {}),
+    ...(patch.hiddenSlugs ? { hiddenSlugs: [...new Set(patch.hiddenSlugs)] } : {}),
+    ...(patch.productDiscounts ? { productDiscounts: patch.productDiscounts } : {}),
+  };
+  const gw = getPortalsGateway();
+  await gw.update(PORTALS_COLLECTION, String(doc.id), { catalog: nextCatalog });
+  return { ok: true, slug, updatedFields };
+}
+
 export async function updatePortalCatalog(
   slug: string,
   visibleSlugs: string[],
 ): Promise<{ ok: boolean; slug: string; total: number }> {
-  const doc = await findPortalDoc(slug);
-  if (!doc) throw new Error(`portal "${slug}" not found`);
-  // Preserva gli altri campi del catalog (visibleVariants, productDiscounts,
-  // hero/accessoriesOutsideBundle): sovrascrivere solo visibleSlugs evita di
-  // azzerare tagli/sconti/flag impostati durante l'onboarding.
-  const currentCatalog =
-    (doc.catalog as Record<string, unknown>) ?? {};
-  const nextCatalog = {
-    ...currentCatalog,
-    visibleSlugs: [...new Set(visibleSlugs)],
-  };
-  const gw = getPortalsGateway();
-  await gw.update(PORTALS_COLLECTION, String(doc.id), { catalog: nextCatalog });
-  return { ok: true, slug, total: nextCatalog.visibleSlugs.length };
+  await patchPortalCatalog(slug, { visibleSlugs });
+  return { ok: true, slug, total: new Set(visibleSlugs).size };
 }
 
 export interface BundlePatch {

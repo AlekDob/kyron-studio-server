@@ -19,6 +19,8 @@ export interface PortalSummary {
   collectedAt: string;
   bundleCount: number;
   productCount: number;
+  // URL assoluto del logo (media Payload, depth>=1) o null se non caricato.
+  logoUrl: string | null;
 }
 
 export interface PortalDetail extends PortalSummary {
@@ -121,6 +123,8 @@ function toSummary(doc: Record<string, unknown>): PortalSummary {
     productCount:
       asStringArray(catalog.visibleSlugs).length +
       asVisibleVariants(catalog.visibleVariants).length,
+    // listPortals usa depth=1: branding.logo e' gia' popolato come media.
+    logoUrl: brandingLogoUrl((doc.branding as Record<string, unknown>) ?? {}),
   };
 }
 

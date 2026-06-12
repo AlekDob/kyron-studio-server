@@ -207,17 +207,20 @@ export async function ensureShipping(
 }
 
 // gotcha-saleor-bundle-hidden-but-purchasable: hidden = isPublished:true +
-// visibleInListings:false + isAvailableForPurchase:true, MAI tutto false.
+// visibleInListings:false + isAvailableForPurchase:true, MAI tutto false
+// (tranne hidden-blocked: prodotto RIMOSSO dal portale, non acquistabile).
 export async function setVisibility(
   target: SaleorTarget,
   productId: string,
   channelId: string,
-  mode: "visible" | "hidden-purchasable",
+  mode: "visible" | "hidden-purchasable" | "hidden-blocked",
 ): Promise<void> {
   const flags =
     mode === "visible"
       ? { isPublished: true, visibleInListings: true, isAvailableForPurchase: true }
-      : { isPublished: true, visibleInListings: false, isAvailableForPurchase: true };
+      : mode === "hidden-purchasable"
+        ? { isPublished: true, visibleInListings: false, isAvailableForPurchase: true }
+        : { isPublished: false, visibleInListings: false, isAvailableForPurchase: false };
   const data = await adminRequest<{
     productChannelListingUpdate: {
       errors: Array<{ field: string | null; message: string }>;
@@ -388,6 +391,24 @@ export async function ensureVoucher(
   );
   if (!dup) checkErrors(listing.voucherChannelListingUpdate.errors, "voucherChannelListing");
   return voucherId;
+}
+
+// Slug dei prodotti che hanno GIA' un channel listing sul channel scuola:
+// serve alla riconciliazione delle rimozioni (admin vede anche gli unpublished).
+export async function listChannelProductSlugs(
+  target: SaleorTarget,
+  channelSlug: string,
+): Promise<string[]> {
+  const data = await adminRequest<{
+    products: { edges: Array<{ node: { slug: string } }> };
+  }>(
+    target,
+    `query ($channel: String!) {
+      products(first: 100, channel: $channel) { edges { node { slug } } }
+    }`,
+    { channel: channelSlug },
+  );
+  return data.products.edges.map((e) => e.node.slug);
 }
 
 // Somma listino dei componenti bundle su default-channel (prezzo corrente,

@@ -11,6 +11,7 @@ import {
   ensureShipping,
   ensureVoucher,
   fetchProduct,
+  listChannelProductSlugs,
   resolveBundleSaving,
   setVariantPrice,
   setVisibility,
@@ -106,6 +107,18 @@ async function applyVisibilityAndPricing(
     }
     report.productsPublished += 1;
     report.steps.push(`${plan.mode === "visible" ? "+" : "-"} ${slug}`);
+  }
+  // Riconciliazione rimozioni: l'enable e' DECLARATIVO. Un prodotto gia' sul
+  // channel ma sparito dal piano (tolto dai commerciali via Studio) viene
+  // bloccato (unpublished), altrimenti il re-seed sarebbe solo additivo e i
+  // prodotti rimossi resterebbero in vendita.
+  const onChannel = await listChannelProductSlugs(target, config.slug);
+  for (const slug of onChannel) {
+    if (plans.has(slug)) continue;
+    const product = await fetchProduct(target, slug, "default-channel", cache);
+    if (!product) continue;
+    await setVisibility(target, product.id, channelId, "hidden-blocked");
+    report.steps.push(`x ${slug} (rimosso dal portale)`);
   }
 }
 
