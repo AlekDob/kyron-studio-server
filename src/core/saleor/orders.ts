@@ -23,6 +23,11 @@ export interface OrderSummary {
   customerPhone: string;
   // Indirizzo di fatturazione compatto ("via, CAP città") o vuoto.
   customerAddress: string;
+  // Dati fiscali (da billingAddress.metadata del checkout). Vuoti se assenti.
+  companyName: string;
+  fiscalCode: string; // Codice fiscale
+  vatNumber: string; // Partita IVA (solo B2B)
+  sdiCode: string; // Codice destinatario SDI (solo B2B)
   totalGross: number;
   currency: string;
   // Stato evasione Saleor (UNFULFILLED, FULFILLED, CANCELED, ...).
@@ -41,6 +46,8 @@ interface Address {
   streetAddress1: string | null;
   city: string | null;
   postalCode: string | null;
+  companyName: string | null;
+  metadata: Array<{ key: string; value: string }> | null;
 }
 
 interface OrderNode {
@@ -81,7 +88,7 @@ const ORDERS_QUERY = `
           status
           paymentStatus
           user { firstName lastName }
-          billingAddress { firstName lastName phone streetAddress1 city postalCode }
+          billingAddress { firstName lastName phone streetAddress1 city postalCode companyName metadata { key value } }
           transactions { pspReference }
           channel { slug name }
           total { gross { amount currency } }
@@ -117,6 +124,11 @@ function pspReference(n: OrderNode): string {
   return n.transactions?.find((t) => t.pspReference)?.pspReference ?? "";
 }
 
+// Valore di un metadata fiscale dell'indirizzo di fatturazione (CF/P.IVA/SDI).
+function billingMeta(a: Address | null, key: string): string {
+  return a?.metadata?.find((m) => m.key === key)?.value ?? "";
+}
+
 function mapOrder(n: OrderNode): OrderSummary {
   return {
     number: n.number,
@@ -127,6 +139,10 @@ function mapOrder(n: OrderNode): OrderSummary {
     customerName: customerName(n),
     customerPhone: n.billingAddress?.phone ?? "",
     customerAddress: customerAddress(n.billingAddress),
+    companyName: n.billingAddress?.companyName ?? "",
+    fiscalCode: billingMeta(n.billingAddress, "fiscalCode"),
+    vatNumber: billingMeta(n.billingAddress, "vatNumber"),
+    sdiCode: billingMeta(n.billingAddress, "sdiCode"),
     totalGross: n.total.gross.amount,
     currency: n.total.gross.currency,
     status: n.status ?? "",
