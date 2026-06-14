@@ -28,7 +28,11 @@ lettura ordini di feature 007 (report email).
 | File | Ruolo |
 |---|---|
 | `src/core/saleor/orders.ts` | `fetchOrdersForRange(from,to)` + `fetchOrdersForDay` (helper `fetchOrders` condiviso). Aggiunti `status`/`paymentStatus` a `OrderSummary` |
-| `src/features/orders/enrich.ts` | `buildPortalIndex()` (1 sola `listPortals()`) + `enrichOrder()` → `EnrichedOrder` (agent, codiceMeccanografico, portalName, portalUrl) |
+| `src/features/orders/enrich.ts` | `buildPortalIndex()` (1 sola `listPortals()`) + `enrichOrder()` → `EnrichedOrder` (agent, codiceMeccanografico, portalName, portalUrl, **stripeUrl**) |
+
+`OrderSummary` include anche dati **cliente** (`customerName`/`customerPhone`/`customerAddress`
+da billingAddress, fallback user/email) e **`pspReference`** (Stripe PaymentIntent `pi_...`
+dalla prima `transactions[]`). `stripeUrl` = `https://dashboard.stripe.com/payments/{pspReference}`.
 | `src/features/orders/route.ts` | Hono route, parse Zod query, fetch+enrich+filtra |
 | `src/features/portals/reader.ts` | `PortalSummary.codiceMeccanografico` esposto (era solo in `PortalDetail`) |
 
