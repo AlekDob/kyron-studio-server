@@ -13,7 +13,7 @@ const DEFAULT_URL = "https://api-staging.kyronedu.it/graphql/";
 const DEFAULT_CHANNEL = "default-channel";
 const CAPACITY_ATTR = "capacita";
 
-function getUrl(): string {
+export function saleorApiUrl(): string {
   return process.env.SALEOR_API_URL ?? DEFAULT_URL;
 }
 
@@ -146,7 +146,7 @@ export async function fetchSaleorProducts(
   channel?: string,
   first = 100,
 ): Promise<SaleorProduct[]> {
-  const res = await fetch(getUrl(), {
+  const res = await fetch(saleorApiUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
