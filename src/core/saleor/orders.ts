@@ -20,6 +20,10 @@ export interface OrderSummary {
   userEmail: string;
   totalGross: number;
   currency: string;
+  // Stato evasione Saleor (UNFULFILLED, FULFILLED, CANCELED, ...).
+  status: string;
+  // Stato pagamento Saleor (FULLY_CHARGED, NOT_CHARGED, ...).
+  paymentStatus: string;
   lines: OrderLine[];
 }
 
@@ -27,6 +31,8 @@ interface OrderNode {
   number: string;
   created: string;
   userEmail: string | null;
+  status: string | null;
+  paymentStatus: string | null;
   channel: { slug: string; name: string } | null;
   total: { gross: { amount: number; currency: string } };
   lines: Array<{
@@ -53,6 +59,8 @@ const ORDERS_QUERY = `
           number
           created
           userEmail
+          status
+          paymentStatus
           channel { slug name }
           total { gross { amount currency } }
           lines {
@@ -77,6 +85,8 @@ function mapOrder(n: OrderNode): OrderSummary {
     userEmail: n.userEmail ?? "",
     totalGross: n.total.gross.amount,
     currency: n.total.gross.currency,
+    status: n.status ?? "",
+    paymentStatus: n.paymentStatus ?? "",
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
       name: l.productName,
@@ -86,9 +96,10 @@ function mapOrder(n: OrderNode): OrderSummary {
   };
 }
 
-// Tutti gli ordini creati in una data (YYYY-MM-DD), ordinati per numero.
-// Pagina finche' hasNextPage (un giorno = poche decine di ordini).
-export async function fetchOrdersForDay(date: string): Promise<OrderSummary[]> {
+// Pagina tutti gli ordini che matchano un OrderFilterInput.created range,
+// ordinati per numero. Pagina finche' hasNextPage. Helper condiviso da
+// fetchOrdersForDay (giorno singolo) e fetchOrdersForRange (intervallo).
+async function fetchOrders(gte: string, lte: string): Promise<OrderSummary[]> {
   const token = process.env.SALEOR_APP_TOKEN;
   if (!token) throw new Error("SALEOR_APP_TOKEN missing");
   const out: OrderSummary[] = [];
@@ -102,7 +113,7 @@ export async function fetchOrdersForDay(date: string): Promise<OrderSummary[]> {
       },
       body: JSON.stringify({
         query: ORDERS_QUERY,
-        variables: { filter: { created: { gte: date, lte: date } }, first: 100, after },
+        variables: { filter: { created: { gte, lte } }, first: 100, after },
       }),
     });
     if (!res.ok) throw new Error(`Saleor orders ${res.status}: ${await res.text()}`);
@@ -113,4 +124,18 @@ export async function fetchOrdersForDay(date: string): Promise<OrderSummary[]> {
     after = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
   } while (after);
   return out.sort((a, b) => Number(a.number) - Number(b.number));
+}
+
+// Tutti gli ordini creati in una data (YYYY-MM-DD), ordinati per numero.
+export async function fetchOrdersForDay(date: string): Promise<OrderSummary[]> {
+  return fetchOrders(date, date);
+}
+
+// Tutti gli ordini creati nell'intervallo [from, to] (YYYY-MM-DD inclusivo).
+// `created` e' un DateRangeInput (solo data), filtro per giorno UTC.
+export async function fetchOrdersForRange(
+  from: string,
+  to: string,
+): Promise<OrderSummary[]> {
+  return fetchOrders(from, to);
 }
