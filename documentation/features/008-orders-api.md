@@ -64,6 +64,10 @@ Nessuna env nuova obbligatoria: riusa `SALEOR_API_URL` + `SALEOR_APP_TOKEN`
 
 - **App token, non admin staff**: come feature 007, un admin con `restrictedAccessToChannels`
   vedrebbe 0 ordini. Si usa l'App token globale.
+- **Stripe `pi_` non `pm_` + dati fiscali in `billingAddress.metadata`**: vedi
+  `documentation/gotchas/gotcha-saleor-order-stripe-pi-and-fiscal-metadata.md`.
+- **Email "spedito"** rifatta col design system Kyron (skill `kyron-email`): card 600px
+  table-based, logo `cid:kyron-logo`. `renderShipEmail()` in `features/orders/status.ts`.
 - **Filtro portale/agente lato server è opzionale**: il frontend (feature 010) fa un solo
   fetch per periodo e filtra portale/agente **client-side** (UX istantanea); i query param
   restano per usi API diretti.

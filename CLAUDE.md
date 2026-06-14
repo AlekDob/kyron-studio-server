@@ -156,6 +156,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - **AI SDK v4 `maxSteps: 1` di default**: l'agente fa il primo tool call e si ferma SENZA produrre testo finale. Sempre passare `maxSteps: 8` (o simile) in `streamText` per multi-step. Vedi feature 002.
 - **Payload search field per-collection**: `where[titolo][contains]` fallisce 400 su `products` (campo si chiama `name`). Map in `src/core/payload/gateway.ts:SEARCH_FIELDS`.
 - **API Key Payload bypassa access control**: oggi no granularita' editor RBAC. Da rivedere quando ci saranno ruoli diversi.
+- **Ordini Saleor: Stripe = `pi_` (non `pm_`), dati fiscali in `billingAddress.metadata`**: `documentation/gotchas/gotcha-saleor-order-stripe-pi-and-fiscal-metadata.md` (feature 008).
 
 ## File chiave
 
