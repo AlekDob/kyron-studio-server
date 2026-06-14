@@ -1,19 +1,15 @@
-// Report email giornaliero: l'overview di IERI renderizzata come HTML
-// email-safe (tabelle, stili inline, palette Kyron) e inviata via Resend.
-// Scheduler in-process: tick ogni 30s, invia al primo tick dopo le 09:00
-// Europe/Rome (catch-up incluso se il container riparte entro le 09:59).
+// Report email giornaliero analytics: l'overview di IERI come HTML email-safe
+// (palette Kyron, stili inline) inviata via Resend alle 09:00 Europe/Rome.
+// Invio + logo cid + scheduler sono condivisi (core/email, core/scheduler).
 
 import { getOverview } from "./service.js";
 import type { AnalyticsOverview, KpiTotals } from "./types.js";
+import { sendKyronEmail, recipientsFromEnv } from "@/core/email/mailer.js";
+import { armDailyJob, romeYesterday } from "@/core/scheduler.js";
 
 const TEAL = "#0E4F4E";
 const MUTED = "#5C8682";
-
-function reportRecipients(): string[] {
-  const raw =
-    process.env.ANALYTICS_REPORT_TO ?? "info@kyronedu.it,gmail@alekdob.com";
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
-}
+const ANALYTICS_REPORT_TO = "team@kyronedu.it,gmail@alekdob.com";
 
 const fmtInt = new Intl.NumberFormat("it-IT");
 const fmtEur = new Intl.NumberFormat("it-IT", {
@@ -138,103 +134,23 @@ export function renderReportHtml(o: AnalyticsOverview, dateLabel: string): strin
 </html>`;
 }
 
-// Logo come allegato INLINE (cid): i client che bloccano i contenuti remoti
-// (Apple Mail privacy, Outlook) non caricano le immagini via URL — il cid
-// viaggia dentro la mail e si vede sempre. Cache in memoria, fetch una volta.
-let logoCache: string | null = null;
-
-async function fetchLogoBase64(): Promise<string | null> {
-  if (logoCache) return logoCache;
-  try {
-    const res = await fetch("https://kyronedu.it/kyron-logo.png");
-    if (!res.ok) return null;
-    logoCache = Buffer.from(await res.arrayBuffer()).toString("base64");
-    return logoCache;
-  } catch {
-    return null;
-  }
-}
-
-// Invio via Resend REST (dominio kyronedu.it verificato; pattern kyron-resend).
-async function sendEmail(subject: string, html: string): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) throw new Error("RESEND_API_KEY missing");
-  const logo = await fetchLogoBase64();
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    // Mittente standard transazionale Kyron (skill kyron-email/kyron-resend).
-    body: JSON.stringify({
-      from: "Kyron <web@kyronedu.it>",
-      reply_to: "info@kyronedu.it",
-      to: reportRecipients(),
-      subject,
-      // Se il logo non e' recuperabile, fallback all'URL remoto.
-      html: logo
-        ? html
-        : html.replace("cid:kyron-logo", "https://kyronedu.it/kyron-logo.png"),
-      attachments: logo
-        ? [
-            {
-              filename: "kyron-logo.png",
-              content: logo,
-              content_id: "kyron-logo",
-              content_type: "image/png",
-            },
-          ]
-        : undefined,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`resend send failed: ${res.status} ${await res.text()}`);
-  }
-}
-
-function yesterdayLabelRome(): string {
-  return new Intl.DateTimeFormat("it-IT", {
-    timeZone: "Europe/Rome",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  }).format(new Date(Date.now() - 86_400_000));
-}
-
 export async function sendDailyReport(): Promise<void> {
   const overview = await getOverview("yesterday");
-  const label = yesterdayLabelRome();
-  await sendEmail(`Report Kyron — ${label}`, renderReportHtml(overview, label));
+  const label = romeYesterday().label;
+  await sendKyronEmail(
+    `Report Kyron — ${label}`,
+    renderReportHtml(overview, label),
+    recipientsFromEnv("ANALYTICS_REPORT_TO", ANALYTICS_REPORT_TO),
+  );
 }
 
-// Data corrente (YYYY-MM-DD) e ora in Europe/Rome, DST-proof via Intl.
-function romeNow(): { date: string; hour: number } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Rome",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return { date: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) };
-}
-
-// Arma lo scheduler. Invia una volta al giorno al primo tick con ora 9
-// (quindi anche in catch-up se il processo parte tra le 09:00 e le 09:59).
+// Opt-in via ANALYTICS_REPORT_ENABLED. Armato in index.ts.
 export function armDailyReport(): void {
-  if (process.env.ANALYTICS_REPORT_ENABLED !== "true") return;
-  let lastSentDate = "";
-  setInterval(() => {
-    const { date, hour } = romeNow();
-    if (hour !== 9 || lastSentDate === date) return;
-    lastSentDate = date;
-    sendDailyReport().catch((err) => {
-      console.error("daily report failed:", err);
-      lastSentDate = ""; // ritenta al tick successivo (entro le 09:59)
-    });
-  }, 30_000);
-  console.log("analytics daily report armed (09:00 Europe/Rome)");
+  armDailyJob({
+    enabled: process.env.ANALYTICS_REPORT_ENABLED === "true",
+    hour: 9,
+    minute: 0,
+    label: "analytics daily report",
+    run: sendDailyReport,
+  });
 }
