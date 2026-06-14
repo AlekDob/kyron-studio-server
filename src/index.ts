@@ -15,6 +15,7 @@ import { analyticsRoute } from "@/features/analytics/route.js";
 import { armDailyReport } from "@/features/analytics/report.js";
 import { ordersReportRoute } from "@/features/orders-report/route.js";
 import { armDailyOrdersReport } from "@/features/orders-report/report.js";
+import { ordersRoute } from "@/features/orders/route.js";
 
 // Brain: decision-013 — studio-server e' il prodotto agentico orizzontale di
 // Studio Futuro. Tenant-aware via header X-Tenant. Oggi serve Kyron, domani
@@ -51,6 +52,7 @@ app.route("/auth", authRoute);
 app.route("/api/v1/studio-users", studioUsersRoute);
 app.route("/api/v1/analytics", analyticsRoute);
 app.route("/api/v1/orders-report", ordersReportRoute);
+app.route("/api/v1/orders", ordersRoute);
 
 // Report analytics giornaliero via email (opt-in: ANALYTICS_REPORT_ENABLED).
 armDailyReport();

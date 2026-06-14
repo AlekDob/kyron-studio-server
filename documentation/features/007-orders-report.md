@@ -2,7 +2,7 @@
 type: feature
 project: studio-server
 created: 2026-06-14
-status: shipped-pending-deploy
+status: shipped
 tags: [orders, report, email, saleor, resend, scheduler]
 ---
 
@@ -22,7 +22,7 @@ report analytics delle 09:00 (feature 005). Brain: decision-017 (report email), 
 | Dettaglio | Per ordine: cliente, righe `Cod. SKU + descrizione x qty + prezzo`, totale |
 | Esclusioni | Ordini di test interni (email in `ORDERS_REPORT_EXCLUDE_EMAILS`) |
 | Giorni a zero | Invia comunque "nessun ordine" |
-| Destinatari | `ORDERS_REPORT_TO` (default `info@kyronedu.it,gmail@alekdob.com`) |
+| Destinatari | `ORDERS_REPORT_TO` (default `team@kyronedu.it,gmail@alekdob.com`) |
 | Canale | Resend, mittente `Kyron <web@kyronedu.it>`, logo inline cid |
 
 ## File
@@ -60,8 +60,29 @@ report analytics delle 09:00 (feature 005). Brain: decision-017 (report email), 
 - **Origine dati**: la mail manuale del 13/06 (one-off) leggeva il DB Postgres prod via
   SSH; questo job legge via Saleor GraphQL (nessun accesso DB da un servizio).
 
-## Deploy
+## Deploy — shipped 2026-06-14
 
-Env da impostare su Coolify studio-server **prod**: `SALEOR_API_URL=https://api.kyronedu.it/graphql/`,
-`SALEOR_APP_TOKEN`, `ORDERS_REPORT_ENABLED=true`. Deploy via push su `main` (autodeploy).
-Test: `POST /api/v1/orders-report/send` (admin) per inviare subito senza aspettare le 09:30.
+studio-server gira su Coolify (progetto "Kyron web", env staging), app uuid
+`x5bzjhuxbl4ab4j5tnkbckq0`, dominio `https://studio-server.kyronedu.it`, branch `main`, Dockerfile.
+
+**Niente autodeploy.** L'istanza Coolify Kyron non ha un FQDN pubblico → GitHub non
+raggiunge i webhook, nessun repo autodeploya. Push/merge su `main` sposta solo il ref Git;
+il deploy va **triggerato** (Redeploy UI, o API). Vedi memoria `push-main-deploya-in-prod`.
+
+**Coolify API solo da dentro il server** (la `:8000` e' chiusa dal firewall):
+`ssh kyron-prod "curl -s http://localhost:8000/api/v1/<...> -H 'Authorization: Bearer <coolify-token>'"`.
+
+Operazioni eseguite al go-live:
+- Env via `POST .../applications/<uuid>/envs` (body `{"key","value","is_preview":false}`):
+  `ORDERS_REPORT_ENABLED=true`, `ORDERS_REPORT_TO=team@kyronedu.it,gmail@alekdob.com`.
+- `SALEOR_APP_TOKEN`: copiato **server-side** dalle env di `storefront-prod` (stessa App Saleor di Danea) senza esporlo; update con `PATCH .../envs` (un POST su key esistente da 201 ma per correggere un valore serve PATCH).
+- Redeploy: `curl ".../api/v1/deploy?uuid=<uuid>&force=false"`.
+
+**Verifica go-live** (log del container `x5bzjhux...`): devono comparire
+`orders daily report armed (09:30 Europe/Rome)` + `listening on :8790`.
+
+**Test invio forzato** (manda la mail di ieri, bypassa l'auth admin della route HTTP):
+`ssh kyron-prod 'c=$(docker ps --format "{{.Names}}" | grep -i x5bzjhux | head -1); docker exec -w /app "$c" node --input-type=module -e "import(\"./dist/features/orders-report/report.js\").then(m=>m.sendDailyOrdersReport())"'`
+
+**Gotcha**: settare un'env col valore *placeholder* (non sostituito) la crea comunque ma rompe il
+runtime — verificare sempre il valore reale, e usare `PATCH` per correggerlo.

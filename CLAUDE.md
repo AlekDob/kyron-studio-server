@@ -97,6 +97,7 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /api/v1/analytics/overview        → KPI PostHog (range today..90d, prev, geo, fonti, pagine, device) — feature 005
 /api/v1/analytics/report/send     → trigger manuale report email (ADMIN-ONLY) — feature 005
 /api/v1/orders-report/send        → trigger manuale report ordini email (ADMIN-ONLY) — feature 007
+/api/v1/orders                    → lista ordini Saleor (range date + portale/agente), arricchiti — feature 008
 ```
 
 I report email giornalieri (scheduler in-process armato in `index.ts`, Europe/Rome):
@@ -132,6 +133,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `ORDERS_REPORT_ENABLED` | `true` arma il report ordini delle 09:30 |
 | `ORDERS_REPORT_TO` | CSV destinatari report ordini (default come analytics) |
 | `ORDERS_REPORT_EXCLUDE_EMAILS` | CSV email escluse dal report ordini (smoke test checkout) |
+| `KYRON_SHOP_BASE_URL` | base URL storefront per il link portale nel modulo Ordini (default `https://kyronedu.it/shop`, feature 008) |
 
 ## Knowledge base
 
@@ -140,6 +142,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - `documentation/features/003-review-editor-agent.md` — agente AI Review Editor (workstream 03)
 - `documentation/features/005-analytics-gateway.md` — gateway PostHog HogQL (range calendario, confronti, geo/fonti/pagine/device, report email 09:00) — decision-017
 - `documentation/features/007-orders-report.md` — report email ordini giornaliero 09:30 (Saleor prod, per portale, SKU+descrizione, esclude test) — riusa core/email + core/scheduler
+- `documentation/features/008-orders-api.md` — `GET /api/v1/orders` lista ordini Saleor (range date) arricchiti con agente/cod. meccanografico/link portale (join channelSlug==slug) — backend del modulo Ordini Studio (feature 010)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`
 - Workstream 03: `Kyron/documentation/workstreams/03-studio-standalone.md`

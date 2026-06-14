@@ -16,6 +16,9 @@ export interface PortalSummary {
   collectedBy: string;
   // Email dell'agente Studio che ha richiesto l'onboarding (vuoto se sconosciuto).
   requestedBy: string;
+  // Codice meccanografico MIUR della scuola (vuoto/"TBD" se non valorizzato).
+  // Esposto nel summary per il join ordini->portale del modulo Ordini (feature 008).
+  codiceMeccanografico: string;
   collectedAt: string;
   bundleCount: number;
   productCount: number;
@@ -26,7 +29,6 @@ export interface PortalSummary {
 export interface PortalDetail extends PortalSummary {
   id: string;
   sitoUfficiale: string;
-  codiceMeccanografico: string;
   schoolAddress: Record<string, unknown>;
   branding: { nome: string; logoUrl: string | null };
   shipToSchool: boolean;
@@ -117,6 +119,7 @@ function toSummary(doc: Record<string, unknown>): PortalSummary {
     status: String(doc.status ?? "draft"),
     collectedBy: String(doc.collectedBy ?? "agent"),
     requestedBy: String(doc.requestedBy ?? ""),
+    codiceMeccanografico: String(doc.codiceMeccanografico ?? ""),
     collectedAt: String(doc.createdAt ?? doc.updatedAt ?? ""),
     bundleCount: bundles.length,
     // I tagli (visibleVariants) sono prodotti a catalogo a tutti gli effetti.
@@ -154,7 +157,6 @@ function toDetail(doc: Record<string, unknown>): PortalDetail {
     ...summary,
     id: String(doc.id ?? ""),
     sitoUfficiale: String(doc.sitoUfficiale ?? ""),
-    codiceMeccanografico: String(doc.codiceMeccanografico ?? ""),
     schoolAddress: (doc.schoolAddress as Record<string, unknown>) ?? {},
     branding: {
       nome: String((doc.branding as Record<string, unknown>)?.nome ?? ""),
