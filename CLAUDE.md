@@ -97,7 +97,8 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /api/v1/analytics/overview        → KPI PostHog (range today..90d, prev, geo, fonti, pagine, device) — feature 005
 /api/v1/analytics/report/send     → trigger manuale report email (ADMIN-ONLY) — feature 005
 /api/v1/orders-report/send        → trigger manuale report ordini email (ADMIN-ONLY) — feature 007
-/api/v1/orders                    → lista ordini Saleor (range date + portale/agente), arricchiti — feature 008
+/api/v1/orders                    → lista ordini Saleor (range date + portale/agente), arricchiti, esclude test — feature 008
+/api/v1/orders/status (PATCH)     → cambia stato lavorazione ordine (kyron_status) + mail "spedito" gato allowlist — feature 008
 ```
 
 I report email giornalieri (scheduler in-process armato in `index.ts`, Europe/Rome):
@@ -134,6 +135,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `ORDERS_REPORT_TO` | CSV destinatari report ordini (default come analytics) |
 | `ORDERS_REPORT_EXCLUDE_EMAILS` | CSV email escluse dal report ordini (smoke test checkout) |
 | `KYRON_SHOP_BASE_URL` | base URL storefront per il link portale nel modulo Ordini (default `https://kyronedu.it/shop`, feature 008) |
+| `ORDERS_SHIP_NOTIFY_ALLOW` | CSV allowlist destinatari mail "spedito": se valorizzata invia SOLO a quegli indirizzi (test), se vuota invia a tutti (go-live). PROD ora = `gmail@alekdob.com` |
 
 ## Knowledge base
 

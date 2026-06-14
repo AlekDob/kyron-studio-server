@@ -21,7 +21,19 @@ lettura ordini di feature 007 (report email).
 | Auth | `tenantMiddleware` + `studioAuthMiddleware` — **tutti** gli utenti Studio (NO requireAdmin) |
 | Default periodo | `from` = oggi-30g, `to` = oggi (UTC) |
 | Filtri opz. | `portal` (channelSlug), `agent` (email o local-part) |
+| Esclusioni | ordini di test interni (`ORDERS_REPORT_EXCLUDE_EMAILS`, default `alek…gmail`) |
 | Risposta | `{ from, to, count, totalGross, orders: EnrichedOrder[] }` |
+| Cambio stato | `PATCH /api/v1/orders/status` body `{ id, status }` — stato lavorazione |
+
+## Stato lavorazione + notifica spedizione
+
+`PATCH /api/v1/orders/status` (tutti gli utenti) scrive `kyron_status` in
+`order.metadata` Saleor (NON usa la fulfillment nativa → niente email Saleor).
+Stati: `nuovo|in_preparazione|spedito|consegnato|annullato` (`src/features/orders/status.ts`).
+Su transizione a **`spedito`** invia una mail "ordine spedito" al cliente, **gata da
+`ORDERS_SHIP_NOTIFY_ALLOW`** (CSV): se valorizzata invia solo a quegli indirizzi
+(modalità test, ora `gmail@alekdob.com`), se vuota invia a tutti (go-live).
+`OrderSummary` espone `id` (per la mutation) e `workflowStatus`.
 
 ## File
 

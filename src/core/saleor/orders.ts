@@ -13,8 +13,12 @@ export interface OrderLine {
 }
 
 export interface OrderSummary {
+  // Global ID Saleor (serve per le mutation, es. cambio stato lavorazione).
+  id: string;
   number: string;
   created: string; // ISO datetime
+  // Stato lavorazione interno Kyron (metadata `kyron_status`), default "nuovo".
+  workflowStatus: string;
   channelSlug: string;
   channelName: string;
   userEmail: string;
@@ -51,8 +55,10 @@ interface Address {
 }
 
 interface OrderNode {
+  id: string;
   number: string;
   created: string;
+  metadata: Array<{ key: string; value: string }> | null;
   userEmail: string | null;
   status: string | null;
   paymentStatus: string | null;
@@ -82,8 +88,10 @@ const ORDERS_QUERY = `
     orders(filter: $filter, first: $first, after: $after) {
       edges {
         node {
+          id
           number
           created
+          metadata { key value }
           userEmail
           status
           paymentStatus
@@ -129,10 +137,17 @@ function billingMeta(a: Address | null, key: string): string {
   return a?.metadata?.find((m) => m.key === key)?.value ?? "";
 }
 
+// Valore di un metadata a livello ordine (es. kyron_status).
+function orderMeta(n: OrderNode, key: string): string {
+  return n.metadata?.find((m) => m.key === key)?.value ?? "";
+}
+
 function mapOrder(n: OrderNode): OrderSummary {
   return {
+    id: n.id,
     number: n.number,
     created: n.created,
+    workflowStatus: orderMeta(n, "kyron_status") || "nuovo",
     channelSlug: n.channel?.slug ?? "unknown",
     channelName: n.channel?.name ?? n.channel?.slug ?? "Sconosciuto",
     userEmail: n.userEmail ?? "",
@@ -185,6 +200,63 @@ async function fetchOrders(gte: string, lte: string): Promise<OrderSummary[]> {
     after = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null;
   } while (after);
   return out.sort((a, b) => Number(a.number) - Number(b.number));
+}
+
+// Header minimale di un ordine (per la mail di notifica spedizione).
+export interface OrderHeader {
+  number: string;
+  userEmail: string;
+  channelName: string;
+}
+
+function authHeaders(token: string): Record<string, string> {
+  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+}
+
+function appToken(): string {
+  const token = process.env.SALEOR_APP_TOKEN;
+  if (!token) throw new Error("SALEOR_APP_TOKEN missing");
+  return token;
+}
+
+// Scrive un metadata pubblico sull'ordine (es. kyron_status) via updateMetadata.
+export async function setOrderMeta(
+  orderId: string,
+  key: string,
+  value: string,
+): Promise<void> {
+  const mutation = `
+    mutation($id: ID!, $input: [MetadataInput!]!) {
+      updateMetadata(id: $id, input: $input) { errors { field message } }
+    }`;
+  const res = await fetch(saleorApiUrl(), {
+    method: "POST",
+    headers: authHeaders(appToken()),
+    body: JSON.stringify({ query: mutation, variables: { id: orderId, input: [{ key, value }] } }),
+  });
+  if (!res.ok) throw new Error(`Saleor updateMetadata ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as {
+    data?: { updateMetadata: { errors: Array<{ message: string }> } };
+    errors?: Array<{ message: string }>;
+  };
+  const err = json.errors?.[0] ?? json.data?.updateMetadata.errors?.[0];
+  if (err) throw new Error(`updateMetadata: ${err.message}`);
+}
+
+export async function fetchOrderHeader(orderId: string): Promise<OrderHeader> {
+  const query = `query($id: ID!){ order(id: $id){ number userEmail channel { name } } }`;
+  const res = await fetch(saleorApiUrl(), {
+    method: "POST",
+    headers: authHeaders(appToken()),
+    body: JSON.stringify({ query, variables: { id: orderId } }),
+  });
+  if (!res.ok) throw new Error(`Saleor order ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as {
+    data?: { order: { number: string; userEmail: string | null; channel: { name: string } | null } | null };
+  };
+  const o = json.data?.order;
+  if (!o) throw new Error("order not found");
+  return { number: o.number, userEmail: o.userEmail ?? "", channelName: o.channel?.name ?? "" };
 }
 
 // Tutti gli ordini creati in una data (YYYY-MM-DD), ordinati per numero.
