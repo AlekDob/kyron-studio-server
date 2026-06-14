@@ -18,13 +18,29 @@ export interface OrderSummary {
   channelSlug: string;
   channelName: string;
   userEmail: string;
+  // Nome cliente (billing address, fallback user/email).
+  customerName: string;
+  customerPhone: string;
+  // Indirizzo di fatturazione compatto ("via, CAP città") o vuoto.
+  customerAddress: string;
   totalGross: number;
   currency: string;
   // Stato evasione Saleor (UNFULFILLED, FULFILLED, CANCELED, ...).
   status: string;
   // Stato pagamento Saleor (FULLY_CHARGED, NOT_CHARGED, ...).
   paymentStatus: string;
+  // Riferimento PSP della transazione (Stripe PaymentIntent pi_...) o vuoto.
+  pspReference: string;
   lines: OrderLine[];
+}
+
+interface Address {
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  streetAddress1: string | null;
+  city: string | null;
+  postalCode: string | null;
 }
 
 interface OrderNode {
@@ -33,6 +49,9 @@ interface OrderNode {
   userEmail: string | null;
   status: string | null;
   paymentStatus: string | null;
+  user: { firstName: string | null; lastName: string | null } | null;
+  billingAddress: Address | null;
+  transactions: Array<{ pspReference: string | null }> | null;
   channel: { slug: string; name: string } | null;
   total: { gross: { amount: number; currency: string } };
   lines: Array<{
@@ -61,6 +80,9 @@ const ORDERS_QUERY = `
           userEmail
           status
           paymentStatus
+          user { firstName lastName }
+          billingAddress { firstName lastName phone streetAddress1 city postalCode }
+          transactions { pspReference }
           channel { slug name }
           total { gross { amount currency } }
           lines {
@@ -76,6 +98,25 @@ const ORDERS_QUERY = `
   }
 `;
 
+// Nome cliente: billing address, fallback user, fallback email local-part.
+function customerName(n: OrderNode): string {
+  const full = (a: { firstName: string | null; lastName: string | null } | null) =>
+    [a?.firstName, a?.lastName].filter(Boolean).join(" ").trim();
+  return full(n.billingAddress) || full(n.user) || (n.userEmail ?? "").split("@")[0];
+}
+
+// Indirizzo fatturazione compatto: "via, CAP città" (parti vuote omesse).
+function customerAddress(a: Address | null): string {
+  if (!a) return "";
+  const locality = [a.postalCode, a.city].filter(Boolean).join(" ");
+  return [a.streetAddress1, locality].filter(Boolean).join(", ").trim();
+}
+
+// Riferimento Stripe: prima transazione con un pspReference valorizzato.
+function pspReference(n: OrderNode): string {
+  return n.transactions?.find((t) => t.pspReference)?.pspReference ?? "";
+}
+
 function mapOrder(n: OrderNode): OrderSummary {
   return {
     number: n.number,
@@ -83,10 +124,14 @@ function mapOrder(n: OrderNode): OrderSummary {
     channelSlug: n.channel?.slug ?? "unknown",
     channelName: n.channel?.name ?? n.channel?.slug ?? "Sconosciuto",
     userEmail: n.userEmail ?? "",
+    customerName: customerName(n),
+    customerPhone: n.billingAddress?.phone ?? "",
+    customerAddress: customerAddress(n.billingAddress),
     totalGross: n.total.gross.amount,
     currency: n.total.gross.currency,
     status: n.status ?? "",
     paymentStatus: n.paymentStatus ?? "",
+    pspReference: pspReference(n),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
       name: l.productName,

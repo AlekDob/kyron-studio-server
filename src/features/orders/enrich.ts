@@ -21,6 +21,14 @@ export interface EnrichedOrder extends OrderSummary {
   codiceMeccanografico: string;
   portalName: string;
   portalUrl: string;
+  // Link diretto alla transazione su Stripe (vuoto se pspReference assente).
+  stripeUrl: string;
+}
+
+// PaymentIntent Stripe (pi_...) -> URL dashboard. Vuoto se non è un riferimento Stripe.
+function stripeUrl(pspReference: string): string {
+  if (!pspReference) return "";
+  return `https://dashboard.stripe.com/payments/${pspReference}`;
 }
 
 // Indice channelSlug/slug -> metadati portale, una sola listPortals() per request.
@@ -53,5 +61,6 @@ export function enrichOrder(
     codiceMeccanografico: meta?.codiceMeccanografico ?? "",
     portalName: meta?.nome ?? order.channelName,
     portalUrl: portalUrl(order.channelSlug),
+    stripeUrl: stripeUrl(order.pspReference),
   };
 }
