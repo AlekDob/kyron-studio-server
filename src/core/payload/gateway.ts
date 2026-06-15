@@ -31,6 +31,18 @@ function buildAuthHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+// Un valore e' un campo localizzato Payload quando e' un oggetto le cui sole
+// chiavi sono locale supportate (it/en/fr). Le relazioni ({id,...}) e i media
+// non matchano. Usato per spezzare gli update localizzati per-locale.
+function isLocalizedObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value as object);
+  if (keys.length === 0) return false;
+  return keys.every((k) => k === "it" || k === "en" || k === "fr");
+}
+
 const SEARCH_FIELDS: Record<string, string[]> = {
   bandi: ["titolo", "slug"],
   eventi: ["titolo", "slug"],
@@ -131,17 +143,65 @@ export function makePayloadGateway(tenant: TenantConfig) {
       id: string,
       data: Record<string, unknown>,
     ): Promise<PayloadDocResponse> {
-      const res = await fetch(`${base}/${slug}/${id}`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`payload update ${slug}/${id}: ${res.status} ${err}`);
+      // PATCH del record. Payload localizza PER-RICHIESTA: una PATCH senza
+      // ?locale scrive sulla locale di default. Se un campo localizzato arriva
+      // come oggetto {it,en} (dal form Studio), va spezzato in una richiesta
+      // per locale — altrimenti Payload serializza l'intero oggetto dentro la
+      // colonna della locale di default e corrompe il dato (it diventa il JSON
+      // {it,en}, en resta invariato). Vedi gotcha localized-write.
+      const patchOnce = async (
+        locale: string | null,
+        payload: Record<string, unknown>,
+      ): Promise<Record<string, unknown>> => {
+        const url = locale
+          ? `${base}/${slug}/${id}?locale=${locale}`
+          : `${base}/${slug}/${id}`;
+        const res = await fetch(url, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`payload update ${slug}/${id}: ${res.status} ${err}`);
+        }
+        const body = (await res.json()) as { doc: Record<string, unknown> };
+        return body.doc;
+      };
+
+      const localizedKeys = Object.keys(data).filter((k) =>
+        isLocalizedObject(data[k]),
+      );
+      if (localizedKeys.length === 0) {
+        return { data: await patchOnce(null, data) };
       }
-      const body = (await res.json()) as { doc: Record<string, unknown> };
-      return { data: body.doc };
+
+      // Locale presenti tra tutti i campi localizzati (di solito it + en).
+      const locales = new Set<string>();
+      for (const k of localizedKeys) {
+        for (const loc of Object.keys(data[k] as Record<string, unknown>)) {
+          locales.add(loc);
+        }
+      }
+      const nonLocalized: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(data)) {
+        if (!localizedKeys.includes(k)) nonLocalized[k] = v;
+      }
+
+      // I campi non-localizzati viaggiano solo con la prima richiesta.
+      let lastDoc: Record<string, unknown> = {};
+      let first = true;
+      for (const loc of locales) {
+        const localePayload: Record<string, unknown> = first
+          ? { ...nonLocalized }
+          : {};
+        for (const k of localizedKeys) {
+          localePayload[k] = (data[k] as Record<string, unknown>)[loc] ?? "";
+        }
+        lastDoc = await patchOnce(loc, localePayload);
+        first = false;
+      }
+      return { data: lastDoc };
     },
 
     async remove(slug: string, id: string): Promise<{ id: string }> {
