@@ -186,19 +186,33 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       render_bundle_builder: tool({
         description:
-          "Mostra all'utente un builder visuale per comporre un KIT/bundle. USA QUESTO TOOL allo step 7 al posto di chiedere componenti/prezzo a parole. Passa gli `availableSlugs` raccolti nello step 6 (selectedSlugs dalla submission ProductPicker): il builder mostra solo i prodotti gia' selezionati dall'utente come componenti possibili del kit. L'utente sceglie nome, prezzo finale, e quali prodotti compongono il kit. Dopo il render, attendi il messaggio utente con la submission (formato JSON {name, priceEur, components}) prima di procedere.",
+          "Mostra all'utente un builder visuale per comporre un KIT/bundle. USA QUESTO TOOL allo step 7 al posto di chiedere componenti/prezzo a parole. Passa gli `availableSlugs` raccolti nello step 6 (selectedSlugs dalla submission ProductPicker): il builder mostra solo i prodotti gia' selezionati dall'utente come componenti possibili del kit. Passa `includeProtection=true` SOLO se la protezione (es. Kyron Shield) e' INCLUSA nel bundle (durata fissa 24/36, scelta dal commerciale): in quel caso il builder mostra i piani protezione come righe-variante 24/36 selezionabili. L'utente sceglie nome, prezzo finale, e quali prodotti compongono il kit. Dopo il render, attendi il messaggio utente con la submission (formato JSON {name, priceEur, components}) prima di procedere.",
         parameters: z.object({
           availableSlugs: z
             .array(z.string())
             .describe(
               "Slug dei prodotti gia' selezionati dall'utente nello step 6 (catalogo). Il builder mostra solo questi come componenti possibili.",
             ),
+          includeProtection: z
+            .boolean()
+            .describe(
+              "true se la protezione e' INCLUSA nel bundle (Kyron Shield/AppleCare obbligatori, durata 24/36 scelta dal commerciale): il builder aggiunge le righe-variante protezione. false per add-on a catalogo (toggle cliente) o nessuna protezione.",
+            ),
         }),
-        execute: async ({ availableSlugs }) => {
-          const all = await fetchSaleorProducts();
-          const products = all.filter((p) =>
-            availableSlugs.includes(p.slug),
+        execute: async ({ availableSlugs, includeProtection }) => {
+          // Espandi le varianti protezione (Kyron Shield 24/36) per il contesto bundle.
+          const all = await fetchSaleorProducts(undefined, 100, {
+            expandProtectionVariants: true,
+          });
+          // Componenti normali: selezione catalogo, esclusi i piani protezione
+          // (che entrano solo se inclusi nel bundle, per non sporcare l'add-on).
+          const base = all.filter(
+            (p) => availableSlugs.includes(p.slug) && !p.isProtectionPlan,
           );
+          const protection = includeProtection
+            ? all.filter((p) => p.isProtectionPlan)
+            : [];
+          const products = [...base, ...protection];
           return {
             _ui: {
               component: "BundleBuilder",
