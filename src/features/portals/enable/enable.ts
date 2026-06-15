@@ -5,7 +5,10 @@
 // Con Fase C (registry runtime da Payload) il portale e' live senza rebuild.
 import { getPortalsGateway, PORTALS_COLLECTION } from "../gateway.js";
 import { getPortal, findPortalDoc, type PortalDetail } from "../reader.js";
-import { normalizePendingSchool } from "@/features/onboard-school/normalize.js";
+import {
+  normalizePendingSchool,
+  isProtectionSlug,
+} from "@/features/onboard-school/normalize.js";
 import { toEnableConfig, type EnablePortalConfig } from "./config.js";
 import {
   ensureChannel,
@@ -101,7 +104,18 @@ async function applyVisibilityAndPricing(
       report.steps.push(`? ${slug}: non su default-channel, skip`);
       continue;
     }
-    await setVisibility(target, product.id, channelId, plan.mode);
+    // Brain: gotcha-stripe-channel-config / decision-012 — un protection plan
+    // (AppleCare, Kyron Shield) hidden a catalogo va comunque pubblicato con
+    // visibleInListings=true: il toggle "Proteggi con..." dello storefront lo
+    // trova SOLO se visibile (fetchProtectionPlans), mentre il catalogo lo
+    // esclude via codice. Senza questo, il toggle non compare sui portali
+    // (bug Pacinotti/Pintor 2026-06-14). Lo mode "visible" fa esattamente
+    // isPublished+visibleInListings+purchasable.
+    const mode =
+      plan.mode === "hidden-purchasable" && isProtectionSlug(slug)
+        ? "visible"
+        : plan.mode;
+    await setVisibility(target, product.id, channelId, mode);
     for (const v of product.variants) {
       if (v.priceAmount <= 0) continue;
       if (plan.capacities && ![...plan.capacities].some((c) => variantHasCapacity(v, c))) {
@@ -110,7 +124,7 @@ async function applyVisibilityAndPricing(
       await setVariantPrice(target, v.id, channelId, v.priceAmount);
     }
     report.productsPublished += 1;
-    report.steps.push(`${plan.mode === "visible" ? "+" : "-"} ${slug}`);
+    report.steps.push(`${mode === "visible" ? "+" : "-"} ${slug}`);
   }
   // Riconciliazione rimozioni: l'enable e' DECLARATIVO. Un prodotto gia' sul
   // channel ma sparito dal piano (tolto dai commerciali via Studio) viene

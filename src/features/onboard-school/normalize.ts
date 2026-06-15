@@ -76,7 +76,14 @@ function isProtection(node: RawNode): boolean {
   const metaFlag = node.metadata.some(
     (m) => m.key === "isProtectionPlan" && m.value === "true",
   );
-  return metaFlag || PROTECTION_SLUG_PREFIXES.some((p) => node.slug.startsWith(p));
+  return metaFlag || isProtectionSlug(node.slug);
+}
+
+/** True se lo slug e' un piano di protezione (AppleCare, Kyron Shield). Usato
+ * anche dall'enable per pubblicarli con visibleInListings=true (il toggle dello
+ * storefront li trova solo se visibili; il catalogo li esclude via codice). */
+export function isProtectionSlug(slug: string): boolean {
+  return PROTECTION_SLUG_PREFIXES.some((p) => slug.startsWith(p));
 }
 
 export async function fetchCatalogIndex(): Promise<Map<string, ProductIndex>> {
