@@ -173,14 +173,27 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             .describe("true se l'utente puo' selezionare piu' prodotti (default per il catalogo)"),
         }),
         execute: async ({ multi }) => {
-          const products = await fetchSaleorProducts();
+          const all = await fetchSaleorProducts();
+          // I piani protezione (AppleCare, Kyron Shield) NON vanno nel picker
+          // catalogo: la protezione si raccoglie con la domanda dedicata (step
+          // 6b), non ticchettandola qui (era ridondante e incoerente). Li
+          // separiamo: il picker mostra solo prodotti reali; gli slug protezione
+          // tornano nel result cosi' l'agente puo' usarli in add-on (hiddenSlugs)
+          // senza UI.
+          const products = all.filter((p) => !p.isProtectionPlan);
+          // Esponiamo anche il LISTINO: l'agente lo usa allo step 6b per chiedere
+          // lo sconto sul piano (es. AppleCare 79 -> 75) e mostrarlo all'utente.
+          const availableProtectionPlans = all
+            .filter((p) => p.isProtectionPlan)
+            .map((p) => ({ slug: p.slug, name: p.name, priceEur: p.priceEur }));
           return {
             _ui: {
               component: "ProductPicker",
               props: { products, multi },
               id: `pick_${Date.now()}`,
             },
-            message: `Picker con ${products.length} prodotti dal catalogo Saleor. Attendi la selezione.`,
+            availableProtectionPlans,
+            message: `Picker con ${products.length} prodotti reali (piani protezione esclusi: si raccolgono allo step 6b). Protezione per add-on: ${availableProtectionPlans.map((p) => `${p.slug} (${p.priceEur}€)`).join(", ") || "nessuna"}. Attendi la selezione.`,
           };
         },
       }),
@@ -318,14 +331,20 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           // e sconti vengono dal ProductPicker, non dall'LLM (che a volte li omette
           // o confonde). Se la submission c'e', vince.
           if (pickerSelection) {
+            // productDiscounts: la submission picker copre il catalogo; gli sconti
+            // su slug NON nel picker (es. piano protezione add-on, che l'agente
+            // mette in doc.catalog allo step 6b) vanno UNITI, non sovrascritti.
+            const pickerKeys = new Set(
+              pickerSelection.productDiscounts.map((d) => `${d.slug}#${d.capacity ?? ""}`),
+            );
+            const extra = (doc.catalog.productDiscounts ?? []).filter(
+              (d) => !pickerKeys.has(`${d.slug}#${d.capacity ?? ""}`),
+            );
             doc.catalog = {
               ...doc.catalog,
               visibleSlugs: pickerSelection.visibleSlugs,
               visibleVariants: pickerSelection.visibleVariants,
-              productDiscounts:
-                pickerSelection.productDiscounts.length > 0
-                  ? pickerSelection.productDiscounts
-                  : doc.catalog.productDiscounts,
+              productDiscounts: [...pickerSelection.productDiscounts, ...extra],
             };
           }
           // Fase A pipeline: normalizza contro il catalogo Saleor reale (SKU case,
