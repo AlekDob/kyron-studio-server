@@ -10,16 +10,22 @@ export async function markTeacherCardAcquired(
   const acquiredAt = new Date().toISOString();
   await setOrderMeta(orderId, "teacherCardAcquiredAt", acquiredAt);
 
+  // Email best-effort: l'acquisizione (metadata) e' gia' registrata; se l'invio
+  // fallisce (es. RESEND non configurato) non facciamo fallire l'azione.
   let emailed = false;
-  const { number, userEmail, channelName } = await fetchOrderHeader(orderId);
-  const to = userEmail.trim();
-  if (to) {
-    await sendKyronEmail(
-      `Buono Carta del Docente acquisito — Ordine #${number}`,
-      renderAcquiredEmail(number, channelName),
-      [to],
-    );
-    emailed = true;
+  try {
+    const { number, userEmail, channelName } = await fetchOrderHeader(orderId);
+    const to = userEmail.trim();
+    if (to) {
+      await sendKyronEmail(
+        `Buono Carta del Docente acquisito — Ordine #${number}`,
+        renderAcquiredEmail(number, channelName),
+        [to],
+      );
+      emailed = true;
+    }
+  } catch (e) {
+    console.warn("[teacher-card] acquired email failed:", String(e));
   }
   return { acquiredAt, emailed };
 }

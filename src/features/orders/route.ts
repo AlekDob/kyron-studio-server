@@ -3,7 +3,12 @@ import { z } from "zod";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { fetchOrdersForRange } from "@/core/saleor/orders.js";
-import { buildPortalIndex, enrichOrder, type EnrichedOrder } from "./enrich.js";
+import {
+  buildPortalIndex,
+  enrichOrder,
+  type EnrichedOrder,
+  type PortalMeta,
+} from "./enrich.js";
 import {
   setWorkflowStatus,
   isWorkflowStatus,
@@ -63,7 +68,15 @@ ordersRoute.get("/", async (c) => {
   const fromDate = from ?? isoDaysAgo(30);
   const toDate = to ?? isoDaysAgo(0);
   try {
-    const index = await buildPortalIndex();
+    // L'arricchimento portali (Payload) non deve far cadere la lista ordini:
+    // se Payload non e' raggiungibile, si degrada a indice vuoto (agente/cod.
+    // meccanografico vuoti) invece di restituire 502.
+    let index = new Map<string, PortalMeta>();
+    try {
+      index = await buildPortalIndex();
+    } catch (e) {
+      console.warn("[orders] portal index unavailable, continuing:", String(e));
+    }
     const exclude = excludedEmails();
     let orders = (await fetchOrdersForRange(fromDate, toDate))
       .filter((o) => !exclude.includes(o.userEmail.toLowerCase()))
