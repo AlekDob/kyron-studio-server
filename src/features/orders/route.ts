@@ -8,6 +8,7 @@ import {
   setWorkflowStatus,
   isWorkflowStatus,
 } from "./status.js";
+import { markTeacherCardAcquired } from "./teacher-card.js";
 
 // GET /api/v1/orders?from=YYYY-MM-DD&to=YYYY-MM-DD&portal=slug&agent=email
 // Vista situazione ordini per i commerciali (feature 008). Accesso: tutti gli
@@ -97,6 +98,24 @@ ordersRoute.patch("/status", async (c) => {
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: "status_failed", detail: String(err) }, 502);
+  }
+});
+
+// POST /api/v1/orders/teacher-card-acquired — segna il buono Carta del Docente
+// come acquisito (metadata) e manda la mail di conferma al cliente (decision-019).
+const acquiredSchema = z.object({ id: z.string().min(1) });
+
+ordersRoute.post("/teacher-card-acquired", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = acquiredSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  try {
+    const result = await markTeacherCardAcquired(parsed.data.id);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json({ error: "acquired_failed", detail: String(err) }, 502);
   }
 });
 

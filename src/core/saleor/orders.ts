@@ -40,6 +40,11 @@ export interface OrderSummary {
   paymentStatus: string;
   // Riferimento PSP della transazione (Stripe PaymentIntent pi_...) o vuoto.
   pspReference: string;
+  // Brain: decision-019 — metodo offline ("bank-transfer" / "teacher-card" / "")
+  // e stato carta del docente dai metadata pubblici dell'ordine.
+  paymentMethod: string;
+  teacherCardAmount: number | null;
+  teacherCardAcquired: boolean;
   lines: OrderLine[];
 }
 
@@ -163,6 +168,11 @@ function mapOrder(n: OrderNode): OrderSummary {
     status: n.status ?? "",
     paymentStatus: n.paymentStatus ?? "",
     pspReference: pspReference(n),
+    paymentMethod: orderMeta(n, "paymentMethod"),
+    teacherCardAmount: orderMeta(n, "teacherCardAmount")
+      ? Number(orderMeta(n, "teacherCardAmount"))
+      : null,
+    teacherCardAcquired: Boolean(orderMeta(n, "teacherCardAcquiredAt")),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
       name: l.productName,
