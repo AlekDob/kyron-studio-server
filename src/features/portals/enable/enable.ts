@@ -26,6 +26,7 @@ import {
   type SaleorTarget,
 } from "./seed-steps.js";
 import { saleorUrlFor } from "./saleor-admin.js";
+import { opsRecalc, opsAssignStripe } from "./ops-client.js";
 
 export interface TargetReport {
   target: SaleorTarget;
@@ -45,6 +46,9 @@ export interface EnableReport {
   // Correzioni auto-applicate dalla normalizzazione pre-enable (Fase A sui
   // doc storici/modificati: SKU case, protection plan hidden, hero bundle-only).
   normalizationFixes: string[];
+  // decision-020: esiti kyron-ops (recalc sconti + Stripe config). Best-effort,
+  // assente se kyron-ops non e' configurato.
+  ops?: { recalc?: unknown; stripe?: unknown };
 }
 
 interface PubPlan {
@@ -334,15 +338,28 @@ export async function enablePortal(
         .join(", ")} — verificare prima di andare live`,
     );
   }
-  const payloadUpdated = await markOnboarded(
-    portal,
-    reports[0]?.channelId ?? "",
-    config,
-  );
+  const channelId = reports[0]?.channelId ?? "";
+  // portal.status e' il valore PRE-enable (markOnboarded aggiorna Payload, non
+  // l'oggetto in memoria): lo usiamo come "primo go-live".
+  const firstGoLive = portal.status !== "onboarded";
+  const payloadUpdated = await markOnboarded(portal, channelId, config);
+
+  // decision-020: kyron-ops chiude il cerchio dell'onboarding self-service.
+  // Recalc SOLO se ci sono sconti (i kit a voucher non ne hanno bisogno); Stripe
+  // config SOLO al primo go-live. Best-effort: errori non rompono l'enable.
+  const ops: EnableReport["ops"] = {};
+  if (config.catalog.productDiscounts.length > 0) {
+    ops.recalc = await opsRecalc();
+  }
+  if (firstGoLive && channelId) {
+    ops.stripe = await opsAssignStripe(channelId);
+  }
+
   return {
     slug,
     targets: reports,
     payloadUpdated,
     normalizationFixes: normalized.fixes,
+    ops,
   };
 }
