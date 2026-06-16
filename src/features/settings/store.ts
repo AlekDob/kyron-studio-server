@@ -32,9 +32,21 @@ export interface ProviderConnection {
   verifiedAt?: string;
 }
 
+// Brain: decision-019 — impostazioni ecommerce configurabili da Studio. Oggi
+// solo la % sconto bonifico (cache per il display storefront; il calcolo reale
+// vive nel voucher Saleor BONIFICO-2, aggiornato al salvataggio).
+export interface EcommerceSettings {
+  bankTransferDiscountPercent: number;
+}
+
+export const DEFAULT_ECOMMERCE_SETTINGS: EcommerceSettings = {
+  bankTransferDiscountPercent: 1.5,
+};
+
 interface AllSettings {
   routing?: Record<string, Record<string, ModelConfig>>;
   providers?: Record<string, ProviderConnection>;
+  ecommerce?: EcommerceSettings;
 }
 
 async function loadAll(): Promise<AllSettings> {
@@ -99,5 +111,18 @@ export async function setProviderConnection(
   const all = await loadAll();
   const providers = (all.providers ??= {});
   providers[providerId] = connection;
+  await saveAll(all);
+}
+
+export async function getEcommerceSettings(): Promise<EcommerceSettings> {
+  const all = await loadAll();
+  return { ...DEFAULT_ECOMMERCE_SETTINGS, ...(all.ecommerce ?? {}) };
+}
+
+export async function setEcommerceSettings(
+  settings: EcommerceSettings,
+): Promise<void> {
+  const all = await loadAll();
+  all.ecommerce = settings;
   await saveAll(all);
 }

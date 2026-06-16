@@ -16,6 +16,7 @@ import { armDailyReport } from "@/features/analytics/report.js";
 import { ordersReportRoute } from "@/features/orders-report/route.js";
 import { armDailyOrdersReport } from "@/features/orders-report/report.js";
 import { ordersRoute } from "@/features/orders/route.js";
+import { getEcommerceSettings } from "@/features/settings/store.js";
 
 // Brain: decision-013 — studio-server e' il prodotto agentico orizzontale di
 // Studio Futuro. Tenant-aware via header X-Tenant. Oggi serve Kyron, domani
@@ -42,6 +43,12 @@ app.use(
 );
 
 app.get("/health", (c) => c.json({ ok: true, service: "studio-server" }));
+// Brain: decision-019 — config ecommerce pubblica (no auth) per lo storefront:
+// la % sconto bonifico per il SOLO display (il calcolo reale e' nel voucher Saleor).
+app.get("/public/ecommerce-config", async (c) => {
+  const settings = await getEcommerceSettings();
+  return c.json(settings);
+});
 app.route("/agents/onboard-school", onboardSchoolRoute);
 app.route("/settings", settingsRoute);
 app.route("/api/v1/collections", collectionsRoute);

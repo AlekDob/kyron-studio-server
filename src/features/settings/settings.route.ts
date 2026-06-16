@@ -6,9 +6,12 @@ import {
   listProviderConnections,
   setProcessConfig,
   setProviderConnection,
+  getEcommerceSettings,
+  setEcommerceSettings,
   PROVIDER_IDS,
   type ProviderId,
 } from "./store.js";
+import { applyBonificoPercentAllTargets } from "./bonifico-voucher.js";
 import { testProviderConnection } from "./provider-test.js";
 import { listProviderModels } from "./list-models.js";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
@@ -113,6 +116,33 @@ settingsRoute.post("/providers/:providerId/test", async (c) => {
     });
   }
   return c.json(result);
+});
+
+// --- Impostazioni ecommerce (decision-019) ------------------------------
+
+const ecommerceSettingsSchema = z.object({
+  bankTransferDiscountPercent: z.number().min(0).max(100),
+});
+
+settingsRoute.get("/ecommerce", async (c) => {
+  const settings = await getEcommerceSettings();
+  return c.json(settings);
+});
+
+settingsRoute.put("/ecommerce", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = ecommerceSettingsSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "body invalido", issues: parsed.error.issues }, 400);
+  }
+  await setEcommerceSettings(parsed.data);
+  // Source of truth del calcolo: aggiorna il voucher Saleor su tutti i channel
+  // (staging + prod, best-effort). Il salvataggio non fallisce se un target e'
+  // irraggiungibile: la % e' comunque persistita per il display.
+  const saleor = await applyBonificoPercentAllTargets(
+    parsed.data.bankTransferDiscountPercent,
+  );
+  return c.json({ ok: true, saleor });
 });
 
 settingsRoute.get("/providers/:providerId/models", async (c) => {
