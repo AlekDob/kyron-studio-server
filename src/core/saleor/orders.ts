@@ -32,6 +32,10 @@ export interface OrderSummary {
   fiscalCode: string; // Codice fiscale
   vatNumber: string; // Partita IVA (solo B2B)
   sdiCode: string; // Codice destinatario SDI (solo B2B)
+  // Dati studente (portali scuola, da billingAddress.metadata del checkout,
+  // feature 028). Vuoti se assenti / main shop.
+  studentName: string;
+  studentClass: string;
   totalGross: number;
   currency: string;
   // Stato evasione Saleor (UNFULFILLED, FULFILLED, CANCELED, ...).
@@ -45,6 +49,8 @@ export interface OrderSummary {
   paymentMethod: string;
   teacherCardAmount: number | null;
   teacherCardAcquired: boolean;
+  // Bonifico segnato come incassato dal team (metadata bankTransferPaidAt).
+  bankTransferPaid: boolean;
   lines: OrderLine[];
 }
 
@@ -163,6 +169,8 @@ function mapOrder(n: OrderNode): OrderSummary {
     fiscalCode: billingMeta(n.billingAddress, "fiscalCode"),
     vatNumber: billingMeta(n.billingAddress, "vatNumber"),
     sdiCode: billingMeta(n.billingAddress, "sdiCode"),
+    studentName: billingMeta(n.billingAddress, "studentName"),
+    studentClass: billingMeta(n.billingAddress, "studentClass"),
     totalGross: n.total.gross.amount,
     currency: n.total.gross.currency,
     status: n.status ?? "",
@@ -173,6 +181,7 @@ function mapOrder(n: OrderNode): OrderSummary {
       ? Number(orderMeta(n, "teacherCardAmount"))
       : null,
     teacherCardAcquired: Boolean(orderMeta(n, "teacherCardAcquiredAt")),
+    bankTransferPaid: Boolean(orderMeta(n, "bankTransferPaidAt")),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
       name: l.productName,
@@ -251,6 +260,35 @@ export async function setOrderMeta(
   };
   const err = json.errors?.[0] ?? json.data?.updateMetadata.errors?.[0];
   if (err) throw new Error(`updateMetadata: ${err.message}`);
+}
+
+// Marca un ordine come PAGATO in Saleor (orderMarkAsPaid) — usato per i bonifici
+// incassati offline: porta paymentStatus a FULLY_CHARGED, cosi' badge Studio,
+// export Danea (Paid) e report restano coerenti. transactionReference per
+// tracciabilita' (richiesto dai channel in TRANSACTION_FLOW, ignorato altrove).
+export async function markOrderAsPaid(orderId: string): Promise<void> {
+  const mutation = `
+    mutation($id: ID!, $ref: String) {
+      orderMarkAsPaid(id: $id, transactionReference: $ref) {
+        order { id paymentStatus }
+        errors { field message }
+      }
+    }`;
+  const res = await fetch(saleorApiUrl(), {
+    method: "POST",
+    headers: authHeaders(appToken()),
+    body: JSON.stringify({
+      query: mutation,
+      variables: { id: orderId, ref: "Bonifico bancario (incasso Kyron)" },
+    }),
+  });
+  if (!res.ok) throw new Error(`Saleor orderMarkAsPaid ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as {
+    data?: { orderMarkAsPaid: { errors: Array<{ message: string }> } };
+    errors?: Array<{ message: string }>;
+  };
+  const err = json.errors?.[0] ?? json.data?.orderMarkAsPaid.errors?.[0];
+  if (err) throw new Error(`orderMarkAsPaid: ${err.message}`);
 }
 
 export async function fetchOrderHeader(orderId: string): Promise<OrderHeader> {

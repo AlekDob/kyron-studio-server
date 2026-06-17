@@ -14,6 +14,7 @@ import {
   isWorkflowStatus,
 } from "./status.js";
 import { markTeacherCardAcquired } from "./teacher-card.js";
+import { markBankTransferPaid } from "./bank-transfer.js";
 
 // GET /api/v1/orders?from=YYYY-MM-DD&to=YYYY-MM-DD&portal=slug&agent=email
 // Vista situazione ordini per i commerciali (feature 008). Accesso: tutti gli
@@ -129,6 +130,22 @@ ordersRoute.post("/teacher-card-acquired", async (c) => {
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: "acquired_failed", detail: String(err) }, 502);
+  }
+});
+
+// POST /api/v1/orders/bank-transfer-paid — segna il bonifico come incassato:
+// marca l'ordine pagato in Saleor (orderMarkAsPaid) + metadata + mail al cliente.
+ordersRoute.post("/bank-transfer-paid", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = acquiredSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  try {
+    const result = await markBankTransferPaid(parsed.data.id);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json({ error: "paid_failed", detail: String(err) }, 502);
   }
 });
 
