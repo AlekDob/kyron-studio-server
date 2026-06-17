@@ -159,6 +159,41 @@ function fixVariantSkuCase(
   }
 }
 
+// L'LLM a volte referenzia un piano con lo slug abbreviato ("kyron-shield"
+// invece di "kyron-shield-ipad"): se il referenziato non esiste ma c'e' UN solo
+// protection plan reale col prefisso compatibile, rimappiamo in silenzio (fix,
+// non errore) cosi' il save passa al primo colpo senza retry ne' messaggi
+// d'allarme al commerciale. Ambiguo (0 o >1 candidati) -> resta errore.
+function remapProtectionSlugs(
+  doc: NormalizableSchool,
+  index: Map<string, ProductIndex>,
+  fixes: string[],
+): void {
+  const realPlans = [...index.values()].filter((p) => p.isProtectionPlan);
+  for (const ref of referencedSlugs(doc)) {
+    if (index.has(ref) || !isProtectionSlug(ref)) continue;
+    const cands = realPlans.filter(
+      (p) =>
+        p.slug === ref || p.slug.startsWith(`${ref}-`) || ref.startsWith(`${p.slug}-`),
+    );
+    if (cands.length !== 1) continue;
+    replaceSlugEverywhere(doc, ref, cands[0].slug);
+    fixes.push(`piano protezione "${ref}" -> "${cands[0].slug}" (slug reale Saleor)`);
+  }
+}
+
+// Rimpiazza ogni occorrenza di uno slug prodotto nel descriptor (tutte le liste
+// che referenziano slug: catalogo, varianti, sconti, componenti dei bundle).
+function replaceSlugEverywhere(doc: NormalizableSchool, from: string, to: string): void {
+  const swap = (s: string) => (s === from ? to : s);
+  doc.catalog.visibleSlugs = doc.catalog.visibleSlugs.map(swap);
+  doc.catalog.hiddenSlugs = doc.catalog.hiddenSlugs.map(swap);
+  for (const v of doc.catalog.visibleVariants) if (v.productSlug === from) v.productSlug = to;
+  for (const d of doc.catalog.productDiscounts ?? []) if (d.slug === from) d.slug = to;
+  for (const b of doc.bundles)
+    for (const c of b.components) if (c.productSlug === from) c.productSlug = to;
+}
+
 // I protection plan non vanno mai a catalogo: hidden-but-purchasable, il
 // cross-sell dello storefront li propone quando il device e' nel carrello.
 function hideProtectionPlans(
@@ -249,6 +284,9 @@ export async function normalizePendingSchool<T extends NormalizableSchool>(
     return { doc, fixes, errors, skippedValidation: true };
   }
 
+  // Prima del check esistenza: auto-correggi gli slug-piano abbreviati, cosi'
+  // non finiscono come errore bloccante (causa della frase d'allarme al save).
+  remapProtectionSlugs(doc, index, fixes);
   for (const slug of referencedSlugs(doc)) {
     if (!index.has(slug)) {
       errors.push(

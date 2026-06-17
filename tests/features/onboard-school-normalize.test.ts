@@ -57,6 +57,18 @@ const CATALOG_RESPONSE = {
             variants: [{ sku: "PS-25WO1CB", attributes: [] }],
           },
         },
+        {
+          node: {
+            slug: "kyron-shield-ipad",
+            name: "Kyron Shield per iPad",
+            metadata: [{ key: "isProtectionPlan", value: "true" }],
+            pricing: { priceRange: { start: { gross: { amount: 79 } } } },
+            variants: [
+              { sku: "KSHIELD24", attributes: [] },
+              { sku: "KSHIELD36", attributes: [] },
+            ],
+          },
+        },
       ],
     },
   },
@@ -169,6 +181,25 @@ describe("normalizePendingSchool", () => {
     ];
     const { errors } = await normalizePendingSchool(doc);
     expect(errors.some((e) => e.includes("PREZZO FINALE"))).toBe(true);
+  });
+
+  it("caso Margoni: auto-corregge lo slug-piano abbreviato (kyron-shield -> kyron-shield-ipad)", async () => {
+    const doc = brokenSiottoDoc();
+    // L'agente referenzia il piano con lo slug abbreviato in piu' liste.
+    doc.catalog.hiddenSlugs = ["kyron-shield"];
+    doc.catalog.productDiscounts = [
+      { slug: "kyron-shield", capacity: null, kind: "percent", value: 10 },
+    ];
+    const { doc: out, fixes, errors } = await normalizePendingSchool(doc);
+
+    // Nessun errore bloccante: lo slug e' stato rimappato, non rifiutato.
+    expect(errors).toEqual([]);
+    expect(out.catalog.hiddenSlugs).toContain("kyron-shield-ipad");
+    expect(out.catalog.hiddenSlugs).not.toContain("kyron-shield");
+    expect(out.catalog.productDiscounts?.[0].slug).toBe("kyron-shield-ipad");
+    expect(fixes.some((f) => f.includes("kyron-shield") && f.includes("slug reale"))).toBe(
+      true,
+    );
   });
 
   it("blocca slug prodotto inesistente", async () => {
