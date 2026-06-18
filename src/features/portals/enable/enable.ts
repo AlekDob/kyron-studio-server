@@ -328,17 +328,22 @@ export async function enablePortal(
   for (const target of targets) {
     reports.push(await enableOnTarget(config, target));
   }
-  // I channelId devono coincidere tra staging e prod (prod e' un clone DB):
-  // se divergono lo storefront punterebbe al channel sbagliato su un env.
+  // staging e prod sono cloni DB SEPARATI: un channel nuovo prende PK
+  // indipendenti su ogni env, quindi i channelId DIVERGONO (atteso, non un
+  // errore — bloccava il go-live dei portali nati runtime). Lo storefront usa
+  // lo SLUG ovunque tranne la pagina "i miei ordini" (filtro per channelId) e
+  // la config Stripe via kyron-ops, entrambe sul live: salviamo l'id di PROD.
+  // (staging e' solo smoke test). Brain: enable-channelid-diverges-staging-prod.
   const ids = new Set(reports.map((r) => r.channelId));
   if (ids.size > 1) {
-    throw new Error(
-      `channelId divergenti tra target: ${reports
+    console.warn(
+      `[enable] channelId divergenti (atteso, cloni separati): ${reports
         .map((r) => `${r.target}=${r.channelId}`)
-        .join(", ")} — verificare prima di andare live`,
+        .join(", ")} — salvo l'id di prod`,
     );
   }
-  const channelId = reports[0]?.channelId ?? "";
+  const channelId =
+    (reports.find((r) => r.target === "prod") ?? reports[0])?.channelId ?? "";
   // portal.status e' il valore PRE-enable (markOnboarded aggiorna Payload, non
   // l'oggetto in memoria): lo usiamo come "primo go-live".
   const firstGoLive = portal.status !== "onboarded";

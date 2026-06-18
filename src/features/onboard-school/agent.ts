@@ -601,8 +601,12 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           const products = await fetchSaleorProducts();
           const errors: string[] = [];
           for (const d of productDiscounts) {
+            // I prodotti con tagli sono espansi in righe id `slug#capacity`
+            // (mai una riga con id == slug nudo). Senza capacity matchiamo per
+            // slug, cosi' uno sconto sull'intero prodotto multi-taglio (es.
+            // percent 5.5% sul MacBook Neo) non da' un falso "non trovato".
             const row = products.find((p) =>
-              d.capacity ? p.id === `${d.slug}#${d.capacity}` : p.id === d.slug,
+              d.capacity ? p.id === `${d.slug}#${d.capacity}` : p.slug === d.slug,
             );
             if (!row) {
               errors.push(`Prodotto "${d.slug}${d.capacity ? `#${d.capacity}` : ""}" non trovato su Saleor.`);

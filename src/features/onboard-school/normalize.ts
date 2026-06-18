@@ -241,6 +241,30 @@ function enforceHeroOutsideBundle(doc: NormalizableSchool, fixes: string[]): voi
   });
 }
 
+// Uno sconto (productDiscount) su un prodotto NON pubblicato sul channel
+// fallisce in Saleor con "prodotto non disponibile nei canali" (setVariantPrice/
+// promotion su un prodotto senza channel listing): bertoni 2026-06-18, AppleCare
+// scontata a 75 ma assente da visible/hidden -> enable morto su prod. Garantiamo
+// che ogni slug scontato sia pubblicato: se non e' gia' referenziato altrove lo
+// aggiungiamo a hiddenSlugs (i protection plan l'enable li pubblica comunque
+// "visible" per il toggle storefront). Brain: gotcha-enable-discount-unpublished-product.
+function ensureDiscountedProductsPublished(doc: NormalizableSchool, fixes: string[]): void {
+  const published = new Set<string>([
+    ...doc.catalog.visibleSlugs,
+    ...doc.catalog.hiddenSlugs,
+    ...doc.catalog.visibleVariants.map((v) => v.productSlug),
+    ...doc.bundles.flatMap((b) => b.components.map((c) => c.productSlug)),
+  ]);
+  for (const d of doc.catalog.productDiscounts ?? []) {
+    if (published.has(d.slug)) continue;
+    doc.catalog.hiddenSlugs.push(d.slug);
+    published.add(d.slug);
+    fixes.push(
+      `${d.slug}: sconto su prodotto non pubblicato -> aggiunto a hiddenSlugs (sara' pubblicato sul channel)`,
+    );
+  }
+}
+
 // `eur` = PREZZO FINALE, non sconto: un valore molto sotto il listino e' il
 // sintomo classico (es. AppleCare value:4 invece di 75).
 function checkDiscounts(
@@ -297,6 +321,7 @@ export async function normalizePendingSchool<T extends NormalizableSchool>(
   fixVariantSkuCase(doc, index, fixes, errors);
   hideProtectionPlans(doc, index, fixes);
   enforceHeroOutsideBundle(doc, fixes);
+  ensureDiscountedProductsPublished(doc, fixes);
   // Dedupe finale: un prodotto hidden non puo' restare anche in visibleSlugs.
   doc.catalog.visibleSlugs = doc.catalog.visibleSlugs.filter(
     (s) => !doc.catalog.hiddenSlugs.includes(s),
