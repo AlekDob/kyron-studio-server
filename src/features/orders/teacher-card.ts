@@ -1,14 +1,36 @@
 // Brain: decision-019 — "Carta del Docente acquisita": il team conferma di aver
 // acquisito il buono sul portale del Ministero. Registra il timestamp nei
 // metadata ordine (teacherCardAcquiredAt) e invia al cliente la mail di conferma.
-import { setOrderMeta, fetchOrderHeader } from "@/core/saleor/orders.js";
+// Se il buono copre l'intero importo, marca anche l'ordine PAGATO in Saleor
+// (come il bonifico), cosi' badge Studio / export Danea / report restano coerenti.
+import {
+  setOrderMeta,
+  fetchOrderHeader,
+  fetchOrderCoverage,
+  markOrderAsPaid,
+} from "@/core/saleor/orders.js";
 import { sendKyronEmail } from "@/core/email/mailer.js";
 
 export async function markTeacherCardAcquired(
   orderId: string,
-): Promise<{ acquiredAt: string; emailed: boolean }> {
+): Promise<{ acquiredAt: string; emailed: boolean; markedPaid: boolean }> {
   const acquiredAt = new Date().toISOString();
   await setOrderMeta(orderId, "teacherCardAcquiredAt", acquiredAt);
+
+  // Se il buono copre l'intero totale l'ordine e' saldato -> FULLY_CHARGED.
+  // Coverage parziale (residuo via Stripe/bonifico) NON viene marcata qui.
+  // Best-effort: l'acquisizione (metadata) e' gia' registrata; un fallimento
+  // del mark-paid viene loggato senza far fallire l'azione (tolleranza 0,5 cent).
+  let markedPaid = false;
+  try {
+    const { total, teacherCardAmount } = await fetchOrderCoverage(orderId);
+    if (teacherCardAmount !== null && teacherCardAmount + 0.005 >= total) {
+      await markOrderAsPaid(orderId);
+      markedPaid = true;
+    }
+  } catch (e) {
+    console.warn("[teacher-card] mark-paid skipped:", String(e));
+  }
 
   // Email best-effort: l'acquisizione (metadata) e' gia' registrata; se l'invio
   // fallisce (es. RESEND non configurato) non facciamo fallire l'azione.
@@ -27,7 +49,7 @@ export async function markTeacherCardAcquired(
   } catch (e) {
     console.warn("[teacher-card] acquired email failed:", String(e));
   }
-  return { acquiredAt, emailed };
+  return { acquiredAt, emailed, markedPaid };
 }
 
 // Email "buono acquisito / ordine confermato" nel design system Kyron.

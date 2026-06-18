@@ -307,6 +307,33 @@ export async function fetchOrderHeader(orderId: string): Promise<OrderHeader> {
   return { number: o.number, userEmail: o.userEmail ?? "", channelName: o.channel?.name ?? "" };
 }
 
+// Totale lordo + importo buono Carta del Docente (metadata pubblico
+// `teacherCardAmount`). Serve a decidere se il buono copre l'intero ordine
+// (-> orderMarkAsPaid all'acquisizione, vedi features/orders/teacher-card.ts).
+export async function fetchOrderCoverage(
+  orderId: string,
+): Promise<{ total: number; teacherCardAmount: number | null }> {
+  const query = `query($id: ID!){ order(id: $id){ total { gross { amount } } metadata { key value } } }`;
+  const res = await fetch(saleorApiUrl(), {
+    method: "POST",
+    headers: authHeaders(appToken()),
+    body: JSON.stringify({ query, variables: { id: orderId } }),
+  });
+  if (!res.ok) throw new Error(`Saleor order ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as {
+    data?: {
+      order: {
+        total: { gross: { amount: number } };
+        metadata: Array<{ key: string; value: string }> | null;
+      } | null;
+    };
+  };
+  const o = json.data?.order;
+  if (!o) throw new Error("order not found");
+  const raw = o.metadata?.find((m) => m.key === "teacherCardAmount")?.value;
+  return { total: o.total.gross.amount, teacherCardAmount: raw ? Number(raw) : null };
+}
+
 // Tutti gli ordini creati in una data (YYYY-MM-DD), ordinati per numero.
 export async function fetchOrdersForDay(date: string): Promise<OrderSummary[]> {
   return fetchOrders(date, date);
