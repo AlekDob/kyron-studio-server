@@ -174,7 +174,10 @@ async function applyDiscounts(
       const listino = variants[0].undiscountedAmount;
       const off = Math.round((listino - d.value) * 100) / 100;
       if (off <= 0) {
-        throw new Error(`productDiscount ${d.slug}: finale ${d.value} >= listino ${listino}`);
+        // finale >= listino = nessuno sconto: la variante resta a prezzo pieno.
+        // Non e' un errore (es. "procedi coi prezzi di listino"): salta e basta.
+        report.steps.push(`eur no-op (resta a listino): ${tag} finale ${d.value} >= ${listino}`);
+        continue;
       }
       for (const v of variants) await setVariantPrice(target, v.id, channelId, listino);
       await upsertPromotion(target, {

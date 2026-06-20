@@ -8,7 +8,7 @@ import {
   pendingSchoolSlugExists,
   writePendingSchoolMarkdown,
 } from "./markdown-writer.js";
-import { normalizePendingSchool } from "./normalize.js";
+import { normalizePendingSchool, fetchCatalogIndex } from "./normalize.js";
 import { fetchSaleorProducts } from "@/core/saleor/client.js";
 import { listPortals, resolvePortal } from "@/features/portals/reader.js";
 import {
@@ -143,6 +143,46 @@ function toComponentSelection(c: {
     productSlug: c.productSlug,
     selection: { kind: "variant", variantSku: c.variantSku ?? c.productSlug },
   };
+}
+
+// Brain: gotcha-portal-kit-slug-mismatch — i tool bundle devono validare i
+// productSlug (e gli SKU variante) contro Saleor PRIMA di persistere. Senza
+// questo, l'LLM puo' salvare slug inventati dal nome (es. "ipad"/"apple-pencil-
+// usb-c" invece di "ipada16"/"muwa3zm-a") che passano il save ed esplodono solo
+// al publish (enablePortal -> normalize). Stessa regola di normalize, anticipata
+// all'edit cosi' l'agente riceve subito la lista degli slug validi e ritenta.
+// Fail-open come normalize: Saleor irraggiungibile non blocca (l'enable rivalida).
+async function validateComponentsAgainstSaleor(
+  components: CanonicalComponent[],
+): Promise<string[]> {
+  let index: Awaited<ReturnType<typeof fetchCatalogIndex>>;
+  try {
+    index = await fetchCatalogIndex();
+  } catch {
+    return [];
+  }
+  const errors: string[] = [];
+  for (const c of components) {
+    const product = index.get(c.productSlug);
+    if (!product) {
+      errors.push(
+        `Prodotto "${c.productSlug}" inesistente su Saleor. Slug validi: ${[...index.keys()].join(", ")}`,
+      );
+      continue;
+    }
+    if (c.selection.kind === "variant") {
+      const sku = c.selection.variantSku;
+      const ok = product.variants.some(
+        (v) => v.sku.toLowerCase() === sku.toLowerCase(),
+      );
+      if (!ok) {
+        errors.push(
+          `SKU "${sku}" inesistente su "${c.productSlug}". SKU disponibili: ${product.variants.map((v) => v.sku).join(", ")}`,
+        );
+      }
+    }
+  }
+  return errors;
 }
 
 export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
@@ -488,8 +528,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           components: z
             .array(
               z.object({
-                productSlug: z.string(),
-                variantSku: z.string().nullable().describe("SKU della variante fissa (accessori monovariante); usa il productSlug se non c'e' variante specifica. null se usi capacity."),
+                productSlug: z.string().describe("slug REALE del prodotto su Saleor (es. 'ipada16', 'muwa3zm-a', 'ps-25wo1cb'), NON derivato dal nome (no 'ipad'/'alimentatore'). Se non lo conosci, ricavalo dal product picker."),
+                variantSku: z.string().nullable().describe("SKU REALE della variante su Saleor (es. 'MUWA3ZM/A', 'PS-25WO1CB'), NON lo slug. null se usi capacity. I componenti sono validati contro Saleor prima del salvataggio."),
                 capacity: z.string().nullable().describe("slug taglio capacita (es. '128gb'): il componente diventa by-attribute (cliente sceglie il colore al checkout). null se usi variantSku."),
               }),
             )
@@ -507,11 +547,16 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             }
             return { error: `Portale "${portalSlug}" non trovato.` };
           }
+          const canonical = components.map((c) => toComponentSelection(c));
+          const slugErrors = await validateComponentsAgainstSaleor(canonical);
+          if (slugErrors.length > 0) {
+            return { error: `Componenti non validi: ${slugErrors.join(" | ")}` };
+          }
           const result = await addBundleToPortal(portal.slug, {
             slug: bundleSlug,
             name,
             finalPriceEur,
-            components: components.map((c) => toComponentSelection(c)),
+            components: canonical,
           });
           return {
             ...result,
@@ -600,6 +645,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           // (gotcha-onboarding-productdiscount-final-price).
           const products = await fetchSaleorProducts();
           const errors: string[] = [];
+          const dropped: string[] = [];
+          const kept: typeof productDiscounts = [];
           for (const d of productDiscounts) {
             // I prodotti con tagli sono espansi in righe id `slug#capacity`
             // (mai una riga con id == slug nudo). Senza capacity matchiamo per
@@ -615,20 +662,28 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             if (d.kind === "percent" && (d.value <= 0 || d.value > 90)) {
               errors.push(`${d.slug}: percent ${d.value} fuori range 1-90.`);
             }
+            // 'eur' = prezzo FINALE. Finale >= listino = nessuno sconto su quel
+            // prodotto (es. "procedi coi prezzi di listino"): NON e' un errore,
+            // scarta la voce (la variante resta a prezzo pieno).
             if (d.kind === "eur" && d.value >= row.priceEur) {
-              errors.push(`${d.slug}: prezzo finale ${d.value} >= listino ${row.priceEur}.`);
+              dropped.push(`${d.slug}${d.capacity ? `#${d.capacity}` : ""} (resta a listino ${row.priceEur}€)`);
+              continue;
             }
             if (d.kind === "eur" && d.value < row.priceEur * 0.3) {
               errors.push(
                 `${d.slug}: ${d.value} EUR sembra uno SCONTO ma 'eur' e' il PREZZO FINALE (listino ${row.priceEur}). Conferma con l'utente il prezzo finale corretto.`,
               );
             }
+            kept.push(d);
           }
           if (errors.length > 0) return { error: "Sconti non validi, NON salvati.", details: errors };
-          const result = await patchPortalCatalog(portal.slug, { productDiscounts });
+          const result = await patchPortalCatalog(portal.slug, { productDiscounts: kept });
+          const droppedNote = dropped.length
+            ? ` (${dropped.length} senza sconto, a listino: ${dropped.join(", ")})`
+            : "";
           return {
             ...result,
-            message: `Sconti di ${portal.nome} aggiornati (${productDiscounts.length}). Applicali con apply_to_saleor.`,
+            message: `Sconti di ${portal.nome} aggiornati (${kept.length})${droppedNote}. Applicali con apply_to_saleor.`,
           };
         },
       }),
@@ -689,8 +744,8 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           components: z
             .array(
               z.object({
-                productSlug: z.string(),
-                variantSku: z.string().nullable(),
+                productSlug: z.string().describe("slug REALE del prodotto su Saleor (es. 'ipada16', 'muwa3zm-a'), NON derivato dal nome. PRESERVA lo slug esistente del componente quando modifichi un kit."),
+                variantSku: z.string().nullable().describe("SKU REALE della variante su Saleor (es. 'MUWA3ZM/A'), NON lo slug. null se usi capacity."),
                 capacity: z
                   .string()
                   .nullable()
@@ -719,7 +774,12 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           if (name != null) patch.name = name;
           if (finalPriceEur != null) patch.finalPriceEur = finalPriceEur;
           if (components != null) {
-            patch.components = components.map((c) => toComponentSelection(c));
+            const canonical = components.map((c) => toComponentSelection(c));
+            const slugErrors = await validateComponentsAgainstSaleor(canonical);
+            if (slugErrors.length > 0) {
+              return { error: `Componenti non validi: ${slugErrors.join(" | ")}` };
+            }
+            patch.components = canonical;
           }
           try {
             const result = await updateBundleInPortal(

@@ -270,28 +270,38 @@ function ensureDiscountedProductsPublished(doc: NormalizableSchool, fixes: strin
 function checkDiscounts(
   doc: NormalizableSchool,
   index: Map<string, ProductIndex>,
+  fixes: string[],
   errors: string[],
 ): void {
+  const kept: typeof doc.catalog.productDiscounts = [];
   for (const d of doc.catalog.productDiscounts ?? []) {
     const product = index.get(d.slug);
-    if (!product) continue;
+    if (!product) {
+      kept.push(d);
+      continue;
+    }
     if (d.kind === "percent") {
       if (d.value <= 0 || d.value > 90) {
         errors.push(`productDiscount ${d.slug}: percent ${d.value} fuori range (1-90)`);
       }
+      kept.push(d);
       continue;
     }
     const listino = product.minPriceEur;
     if (listino > 0 && d.value >= listino) {
-      errors.push(
-        `productDiscount ${d.slug}: prezzo finale ${d.value}EUR >= listino ${listino}EUR (nessuno sconto)`,
-      );
-    } else if (listino > 0 && d.value < listino * EUR_FINAL_PRICE_MIN_RATIO) {
+      // finale >= listino = nessuno sconto su quella variante (es. "procedi coi
+      // prezzi di listino"): NON e' un errore, scarta la voce (resta a listino).
+      fixes.push(`productDiscount ${d.slug}: finale ${d.value}EUR = listino ${listino}EUR -> nessuno sconto, rimosso`);
+      continue;
+    }
+    if (listino > 0 && d.value < listino * EUR_FINAL_PRICE_MIN_RATIO) {
       errors.push(
         `productDiscount ${d.slug}: ${d.value}EUR sembra uno SCONTO, ma "eur" e' il PREZZO FINALE (listino ${listino}EUR). Correggere il valore.`,
       );
     }
+    kept.push(d);
   }
+  doc.catalog.productDiscounts = kept;
 }
 
 export async function normalizePendingSchool<T extends NormalizableSchool>(
@@ -326,6 +336,6 @@ export async function normalizePendingSchool<T extends NormalizableSchool>(
   doc.catalog.visibleSlugs = doc.catalog.visibleSlugs.filter(
     (s) => !doc.catalog.hiddenSlugs.includes(s),
   );
-  checkDiscounts(doc, index, errors);
+  checkDiscounts(doc, index, fixes, errors);
   return { doc, fixes, errors, skippedValidation: false };
 }
