@@ -75,7 +75,10 @@ interface OrderNode {
   paymentStatus: string | null;
   user: { firstName: string | null; lastName: string | null } | null;
   billingAddress: Address | null;
-  transactions: Array<{ pspReference: string | null }> | null;
+  transactions: Array<{
+    pspReference: string | null;
+    chargedAmount?: { amount: number } | null;
+  }> | null;
   channel: { slug: string; name: string } | null;
   total: { gross: { amount: number; currency: string } };
   lines: Array<{
@@ -108,7 +111,7 @@ const ORDERS_QUERY = `
           paymentStatus
           user { firstName lastName }
           billingAddress { firstName lastName phone streetAddress1 city postalCode companyName metadata { key value } }
-          transactions { pspReference }
+          transactions { pspReference chargedAmount { amount } }
           channel { slug name }
           total { gross { amount currency } }
           lines {
@@ -138,9 +141,24 @@ function customerAddress(a: Address | null): string {
   return [a.streetAddress1, locality].filter(Boolean).join(", ").trim();
 }
 
-// Riferimento Stripe: prima transazione con un pspReference valorizzato.
+// Riferimento Stripe da mostrare (link "Apri su Stripe"). Un checkout puo'
+// generare PIU' PaymentIntent (re-init Stripe su remount): il primo resta
+// orfano e "Incomplete" su Stripe, traendo in inganno chi apre il link.
+// Scegli la transazione che ha DAVVERO incassato (chargedAmount > 0); fallback
+// all'ultima con un pspReference. Brain: gotcha-stripe-duplicate-payment-intent-orphan.
+type TxRef = { pspReference: string | null; chargedAmount?: { amount: number } | null };
+
+export function pickStripeRef(transactions: TxRef[] | null): string {
+  const tx = (transactions ?? []).filter((t) => t.pspReference);
+  if (tx.length === 0) return "";
+  const charged = tx
+    .filter((t) => (t.chargedAmount?.amount ?? 0) > 0)
+    .sort((a, b) => (a.chargedAmount?.amount ?? 0) - (b.chargedAmount?.amount ?? 0));
+  return (charged.at(-1) ?? tx.at(-1))!.pspReference ?? "";
+}
+
 function pspReference(n: OrderNode): string {
-  return n.transactions?.find((t) => t.pspReference)?.pspReference ?? "";
+  return pickStripeRef(n.transactions);
 }
 
 // Valore di un metadata fiscale dell'indirizzo di fatturazione (CF/P.IVA/SDI).

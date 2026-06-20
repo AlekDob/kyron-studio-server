@@ -157,6 +157,8 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - **Payload search field per-collection**: `where[titolo][contains]` fallisce 400 su `products` (campo si chiama `name`). Map in `src/core/payload/gateway.ts:SEARCH_FIELDS`.
 - **API Key Payload bypassa access control**: oggi no granularita' editor RBAC. Da rivedere quando ci saranno ruoli diversi.
 - **Ordini Saleor: Stripe = `pi_` (non `pm_`), dati fiscali in `billingAddress.metadata`**: `documentation/gotchas/gotcha-saleor-order-stripe-pi-and-fiscal-metadata.md` (feature 008).
+- **Doppio PaymentIntent: un ordine puo' avere piu' transazioni Stripe (il primo PI resta orfano "Incomplete"). `pickStripeRef()` in `core/saleor/orders.ts` sceglie la transazione con `chargedAmount > 0`, non la prima — altrimenti il link "Apri su Stripe" punta al PI orfano e l'ordine sembra non pagato**: `../documentation/gotchas/gotcha-stripe-duplicate-payment-intent-orphan.md` (umbrella).
+- **Kit portali: productSlug/SKU validati contro Saleor SOLO al publish (storico)**: i tool agente bundle ora validano all'edit (`validateComponentsAgainstSaleor`), ma attenzione agli slug derivati dal nome e al codice articolo ≠ nome prodotto (es. `MX2D3ZM/A` = Pencil Pro, non USB-C). Vedi `documentation/gotchas/gotcha-portal-kit-slug-mismatch.md`.
 
 ## File chiave
 
