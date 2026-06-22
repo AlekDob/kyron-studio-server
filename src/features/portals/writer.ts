@@ -1,4 +1,4 @@
-import { findPortalDoc } from "./reader.js";
+import { findPortalDoc, getPortal, type PortalDetail } from "./reader.js";
 import { getPortalsGateway, PORTALS_COLLECTION } from "./gateway.js";
 
 // Brain: decision-016 — writer scrive in Payload via gateway REST.
@@ -236,6 +236,61 @@ export async function removeBundleFromPortal(
   const gw = getPortalsGateway();
   await gw.update(PORTALS_COLLECTION, String(doc.id), { bundles: next });
   return { ok: true, slug, bundleSlug, total: next.length };
+}
+
+export interface DuplicateOptions {
+  newSlug: string;
+  newNome: string;
+  requestedBy: string;
+}
+
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// Costruisce il doc Payload della copia: struttura (catalogo, bundle, sconti,
+// spedizione) clonata verbatim, identita' scuola resettata. Indirizzo svuotato
+// (solo country=IT) per forzare il reinserimento ed evitare spedizioni al
+// vecchio indirizzo. Nasce sempre come Bozza: channel/voucher si generano
+// all'enable, mai copiati. Vedi feature 007.
+function buildClonedDoc(
+  source: PortalDetail,
+  opts: DuplicateOptions,
+): Record<string, unknown> {
+  return {
+    slug: opts.newSlug,
+    nome: opts.newNome,
+    status: "draft",
+    collectedBy: "manual",
+    requestedBy: opts.requestedBy,
+    sitoUfficiale: "",
+    codiceMeccanografico: "TBD",
+    schoolAddress: { country: "IT" },
+    branding: { nome: opts.newNome },
+    shipToSchool: source.shipToSchool,
+    shippingMethodLabel: source.shippingMethodLabel,
+    shippingPriceEur: source.shippingPriceEur,
+    catalog: source.catalog,
+    bundles: source.bundles.map(writableBundle),
+  };
+}
+
+// Duplica un portale come nuova Bozza. Valida lo slug (kebab-case + univoco),
+// legge la sorgente via getPortal e crea la copia. Non tocca Saleor/Stripe.
+export async function duplicatePortal(
+  sourceSlug: string,
+  opts: DuplicateOptions,
+): Promise<{ ok: boolean; slug: string; nome: string }> {
+  if (!SLUG_RE.test(opts.newSlug)) {
+    throw new Error(`invalid slug "${opts.newSlug}" (use kebab-case)`);
+  }
+  if (await findPortalDoc(opts.newSlug)) {
+    throw new Error(`slug "${opts.newSlug}" already exists`);
+  }
+  const source = await getPortal(sourceSlug);
+  if (!source) throw new Error(`portal "${sourceSlug}" not found`);
+
+  const gw = getPortalsGateway();
+  await gw.create(PORTALS_COLLECTION, buildClonedDoc(source, opts));
+  return { ok: true, slug: opts.newSlug, nome: opts.newNome };
 }
 
 export async function deletePortal(

@@ -6,6 +6,7 @@ import { fetchSaleorProducts } from "@/core/saleor/client.js";
 import {
   updatePortal,
   deletePortal,
+  duplicatePortal,
   savePortalLogo,
   updatePortalCatalog,
   updateBundleInPortal,
@@ -58,6 +59,29 @@ portalsRoute.post("/:slug/enable", async (c) => {
     const report = await enablePortal(c.req.param("slug"), targets);
     const emailSent = await notifyPortalLive(c.req.param("slug"), report);
     return c.json({ ...report, emailSent });
+  } catch (err) {
+    const { status, body } = errorResponse(err);
+    return c.json(body, status);
+  }
+});
+
+// Duplica un portale come nuova Bozza (struttura clonata, identita' resettata).
+// requestedBy = utente Studio loggato. Non tocca Saleor: la copia va abilitata
+// a parte. Vedi feature 007 (sezione Duplica portale).
+portalsRoute.post("/:slug/duplicate", async (c) => {
+  try {
+    const body = (await c.req.json()) as { newSlug?: string; newNome?: string };
+    const newSlug = (body.newSlug ?? "").trim();
+    const newNome = (body.newNome ?? "").trim();
+    if (!newSlug || !newNome) {
+      return c.json({ error: "newSlug and newNome are required" }, 400);
+    }
+    const result = await duplicatePortal(c.req.param("slug"), {
+      newSlug,
+      newNome,
+      requestedBy: c.get("studioUser").email,
+    });
+    return c.json(result);
   } catch (err) {
     const { status, body } = errorResponse(err);
     return c.json(body, status);
