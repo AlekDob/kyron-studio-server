@@ -246,12 +246,25 @@ export interface DuplicateOptions {
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+// Placeholder dei campi indirizzo `required` in Payload (collection
+// pending-schools, gruppo schoolAddress). La copia nasce con l'indirizzo da
+// reinserire, ma i campi sono obbligatori e la collection non ha draft
+// versioning: senza valori la create fallisce con ValidationError -> 400.
+// "TBD" e' la stessa convenzione gia' usata per codiceMeccanografico.
+const ADDRESS_PLACEHOLDER = {
+  country: "IT",
+  streetAddress1: "TBD",
+  postalCode: "00000",
+  city: "TBD",
+  countryArea: "TBD",
+} as const;
+
 // Costruisce il doc Payload della copia: struttura (catalogo, bundle, sconti,
-// spedizione) clonata verbatim, identita' scuola resettata. Indirizzo svuotato
-// (solo country=IT) per forzare il reinserimento ed evitare spedizioni al
-// vecchio indirizzo. Nasce sempre come Bozza: channel/voucher si generano
-// all'enable, mai copiati. Vedi feature 007.
-function buildClonedDoc(
+// spedizione) clonata verbatim, identita' scuola resettata. Indirizzo
+// placeholder (vedi ADDRESS_PLACEHOLDER) per forzare il reinserimento ed
+// evitare spedizioni al vecchio indirizzo. Nasce sempre come Bozza:
+// channel/voucher si generano all'enable, mai copiati. Vedi feature 007.
+export function buildClonedDoc(
   source: PortalDetail,
   opts: DuplicateOptions,
 ): Record<string, unknown> {
@@ -263,7 +276,7 @@ function buildClonedDoc(
     requestedBy: opts.requestedBy,
     sitoUfficiale: "",
     codiceMeccanografico: "TBD",
-    schoolAddress: { country: "IT" },
+    schoolAddress: { ...ADDRESS_PLACEHOLDER },
     branding: { nome: opts.newNome },
     shipToSchool: source.shipToSchool,
     shippingMethodLabel: source.shippingMethodLabel,
