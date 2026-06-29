@@ -46,6 +46,10 @@ export interface EnableReport {
   // Correzioni auto-applicate dalla normalizzazione pre-enable (Fase A sui
   // doc storici/modificati: SKU case, protection plan hidden, hero bundle-only).
   normalizationFixes: string[];
+  // Target NON-prod falliti in modo non bloccante (staging e' solo smoke test):
+  // un suo errore (es. prezzi non allineati) viene riportato ma non blocca il
+  // go-live di prod. Vuoto = tutti i target ok.
+  targetErrors: { target: SaleorTarget; error: string }[];
   // decision-020: esiti kyron-ops (recalc sconti + Stripe config). Best-effort,
   // assente se kyron-ops non e' configurato.
   ops?: { recalc?: unknown; stripe?: unknown };
@@ -328,8 +332,20 @@ export async function enablePortal(
     bundles: normalized.doc.bundles as EnablePortalConfig["bundles"],
   };
   const reports: TargetReport[] = [];
+  const targetErrors: EnableReport["targetErrors"] = [];
   for (const target of targets) {
-    reports.push(await enableOnTarget(config, target));
+    try {
+      reports.push(await enableOnTarget(config, target));
+    } catch (err) {
+      // PROD e' il go-live reale: un suo errore resta fatale. STAGING e' solo
+      // smoke test (cloni DB separati, riga sotto): un suo fallimento — es.
+      // listino componenti non allineato al bump di prod — NON deve bloccare la
+      // pubblicazione in produzione. Lo riportiamo e proseguiamo.
+      if (target === "prod") throw err;
+      const error = err instanceof Error ? err.message : String(err);
+      console.warn(`[enable] target ${target} fallito (non bloccante): ${error}`);
+      targetErrors.push({ target, error });
+    }
   }
   // staging e prod sono cloni DB SEPARATI: un channel nuovo prende PK
   // indipendenti su ogni env, quindi i channelId DIVERGONO (atteso, non un
@@ -368,6 +384,7 @@ export async function enablePortal(
     targets: reports,
     payloadUpdated,
     normalizationFixes: normalized.fixes,
+    targetErrors,
     ops,
   };
 }

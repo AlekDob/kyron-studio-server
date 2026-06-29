@@ -441,8 +441,11 @@ export async function resolveBundleSaving(
   }
   const saving = Math.round((sum - bundle.finalPriceEur) * 100) / 100;
   if (saving <= 0) {
+    // Il voucher del kit sconta (somma componenti - prezzo kit): deve essere > 0.
+    // Messaggio esplicito su ambiente + verso giusto (la causa tipica e' un
+    // listino componenti non allineato sul target, es. staging non bumpato).
     throw new Error(
-      `Bundle ${bundle.slug}: saving non positivo (${sum} - ${bundle.finalPriceEur})`,
+      `Bundle "${bundle.slug}" su ${target}: il prezzo del kit (${bundle.finalPriceEur} EUR) e' maggiore o uguale alla somma dei componenti a listino (${sum} EUR), quindi lo sconto del voucher sarebbe ${saving} EUR (deve essere positivo). Controlla che i prezzi dei componenti su ${target} siano aggiornati, oppure abbassa il prezzo del kit.`,
     );
   }
   return saving;

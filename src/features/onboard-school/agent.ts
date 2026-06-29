@@ -722,9 +722,16 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
                 steps: t.steps,
               })),
               emailSent,
+              targetErrors: report.targetErrors,
               message: `Portale ${portal.nome} applicato a Saleor (staging+prod).${
                 report.targets.some((t) => t.promotionsOnSale === false)
                   ? " ATTENZIONE: sconti non ancora attivi (recalc Saleor in coda)."
+                  : ""
+              }${
+                report.targetErrors.length > 0
+                  ? ` NB: ${report.targetErrors
+                      .map((e) => `${e.target} non aggiornato (${e.error})`)
+                      .join("; ")} — la pubblicazione su prod e' comunque andata a buon fine.`
                   : ""
               }${firstGoLive && emailSent ? " Mail di go-live inviata." : ""}`,
             };
