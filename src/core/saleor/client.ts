@@ -185,8 +185,15 @@ function expandByCapacity(node: SaleorProductNode): SaleorProduct[] | null {
   }));
 }
 
-// Prodotto senza tagli → una riga singola keyed sullo slug.
+// Prodotto senza tagli → una riga singola keyed sullo slug. Se ha UNA sola
+// variante esponiamo il suo SKU reale: il bundle editor manuale costruisce cosi'
+// una selection {kind:"variant", variantSku} corretta invece di usare lo slug
+// (gotcha-portal-kit-slug-mismatch). Multi-variante senza `capacita` (es. Kyron
+// Shield 24/36) resta senza SKU: la riga non e' aggiungibile come componente
+// fisso finche' non viene espansa per variante.
 function wholeProduct(node: SaleorProductNode): SaleorProduct {
+  const variants = node.variants ?? [];
+  const singleSku = variants.length === 1 ? variants[0].sku : undefined;
   return {
     id: node.slug,
     slug: node.slug,
@@ -194,6 +201,7 @@ function wholeProduct(node: SaleorProductNode): SaleorProduct {
     priceEur: node.pricing?.priceRange.start.gross.amount ?? 0,
     category: node.category?.name ?? "senza categoria",
     imageUrl: node.thumbnail?.url,
+    ...(singleSku ? { variantSku: singleSku } : {}),
     ...(isProtectionPlanNode(node) ? { isProtectionPlan: true } : {}),
   };
 }

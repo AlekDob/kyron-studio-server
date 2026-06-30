@@ -54,10 +54,24 @@ fail-fast e visibile. Fail-open se Saleor è irraggiungibile (l'enable rivalida)
 Descrizioni dei parametri `productSlug`/`variantSku` riscritte: slug e SKU REALI di
 Saleor, mai derivati dal nome.
 
-## Da fare ancora
+## Fix UI manuale (2026-06-30)
 
-La UI manuale `BundleCard` (`studio/src/components/portals/PortalDetail.tsx`,
-`addComponent`/`removeComponent`) ricostruisce i componenti come `{productSlug: s,
-variantSku: s}`, riproducendo lo stesso difetto + distruggendo la `selection` dei
-componenti non toccati. Va corretta lato client (preservare i componenti esistenti +
-risolvere lo SKU reale dal catalogo).
+La UI `BundleCard` (`studio/src/components/portals/PortalDetail.tsx`) ricostruiva i
+componenti come `{productSlug: s, variantSku: s}` ad ogni add/remove: variantSku=slug
+(rotto per i multi-variante come `ipada16`) + distruggeva la `selection` dei componenti
+non toccati. Era il difetto residuo che ha bloccato il re-publish di PBS
+(`accademia-professionale-pbs`) al rename del kit.
+
+Corretto:
+- `studio-server` `core/saleor/client.ts` `wholeProduct()` espone `variantSku` per i
+  prodotti single-variant (accessori) → la UI ha lo SKU REALE, non lo slug.
+- `studio` `BundleCard`: `removeComponent` filtra e lascia gli altri componenti
+  VERBATIM; `addComponent(row)` costruisce la selection canonica da `buildComponent()`
+  (taglio → `by-attribute colore` + `valueFilter.capacita`; single-variant → `variant`
+  + SKU reale; multi-variante senza taglio → riga disabilitata nel picker).
+- tipi `BundleComponent`/`BundleComponentSelection` in `studio/src/lib/gateway.ts`.
+
+Dati PBS regrediti (eur 4/0, `ipada16` variantSku=slug) ripristinati su Payload prod via
+`studio-server/scripts/fix-pbs-descriptor.ts` (valori da
+`ecommerce/documentation/schools/accademia-professionale-pbs.md`, verificati contro
+Saleor prod).
