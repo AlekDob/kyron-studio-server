@@ -2,8 +2,8 @@
 type: feature
 project: studio-server
 created: 2026-06-12
-last_verified: 2026-06-12
-tags: [portals, saleor, onboarding, pipeline]
+last_verified: 2026-07-01
+tags: [portals, saleor, onboarding, pipeline, unpaid-orders, offline-payments, money-path]
 status: implemented-local
 ---
 
@@ -24,7 +24,7 @@ Claude Code locale -> seed CLI" con un click in Studio.
 |---|---|
 | `src/features/portals/enable/saleor-admin.ts` | client GraphQL admin (tokenCreate, cache token per target, retry su jwt scaduto) |
 | `src/features/portals/enable/config.ts` | PortalDetail (jsonb Payload) -> EnablePortalConfig; selection variant/fixed/by-attribute |
-| `src/features/portals/enable/seed-steps.ts` | port 1:1 step CLI: ensureChannel, ensureShipping, setVisibility (hidden-but-purchasable), setVariantPrice, upsertPromotion (FIXED su listino pieno / PERCENTAGE), ensureVoucher (ENTIRE_ORDER FIXED, applyOncePerOrder:false), resolveBundleSaving, voucherCodeFor |
+| `src/features/portals/enable/seed-steps.ts` | port 1:1 step CLI: ensureChannel (channelCreate con `orderSettings.allowUnpaidOrders:true` + `automaticallyConfirmAllNewOrders:true` — vedi money-path sotto), ensureShipping, setVisibility (hidden-but-purchasable), setVariantPrice, upsertPromotion (FIXED su listino pieno / PERCENTAGE), ensureVoucher (ENTIRE_ORDER FIXED, applyOncePerOrder:false), resolveBundleSaving, voucherCodeFor |
 | `src/features/portals/enable/enable.ts` | orchestratore per target + buildPubPlans + poll onSale 75s + guard channelId divergenti + markOnboarded su Payload |
 | `src/features/portals/enable/notify.ts` | mail "portale live" (template kyron-email, logo CID + logo scuola, riepilogo, CTA) — best-effort |
 | `scripts/send-portal-live-test.ts` | invio test con dati reali Siotto Pintor |
@@ -69,3 +69,24 @@ reale dopo deploy + env.
 - promo `eur`: baseline = `priceUndiscounted` (listino pieno), channel riallineato prima della promo
 - voucher: `applyOncePerOrder:false` o lo sconto FIXED si cappa sulla riga piu' economica
 - il beat celery NON sempre applica le Promotion da solo: `promotionsOnSale:false` nel report = serve recalc manuale
+
+## Money-path: allowUnpaidOrders sul channel (fix 2026-07-01)
+
+**Sintomo**: checkout **bonifico** / **carta del docente** su un portale fallisce con
+`Provided payment methods can not cover the checkout's total amount` (bonifico) o
+`CHECKOUT_NOT_FULLY_PAID` (carta docente → ordine orfano, Stripe incassato ma ordine mai creato).
+Gli ordini a **carta** passano lo stesso → bug invisibile finche' nessuno prova un metodo offline.
+
+**Causa**: `ensureChannel` creava il channel SENZA `orderSettings`, quindi `allowUnpaidOrders=false`.
+I pagamenti offline materializzano ordini NON pagati; Saleor li rifiuta senza quel flag.
+Esistono due path di creazione channel: `ecommerce/seed/lib/saleor-channel.ts` (path .md, aveva
+gia' il flag dal commit `7867e9f`) e QUESTO (`seed-steps.ts`, path attivo via Studio/Payload, che
+NON lo settava). I portali nascono da questo → nascevano tutti rotti per l'offline.
+
+**Fix**: `channelCreate` ora passa `orderSettings:{allowUnpaidOrders:true, automaticallyConfirmAllNewOrders:true}`.
+Incidente 2026-07-01: 14 channel prod (id 11-24: bertoni, bettolo, dorotea, farina, fermi, gallio,
+maffei, majorana, nievo, paolo-vi, respighi, righi, rodari, vogelweide) backfillati a mano via Django
+shell prima del fix. **Caveat**: il branch "channel gia' esistente" ritorna early e NON re-setta il flag —
+se un channel esistente perde il flag va rifatto a mano o via `ecommerce/seed/enable-unpaid-orders.ts`.
+Cross-ref: `ecommerce/documentation/features/026-offline-payment-methods.md`,
+`ecommerce/documentation/gotchas/gotcha-carta-docente-channel-missing-allow-unpaid-orphan.md`.

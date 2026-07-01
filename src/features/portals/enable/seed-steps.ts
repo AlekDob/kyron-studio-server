@@ -114,7 +114,20 @@ export async function ensureChannel(
     `mutation ($input: ChannelCreateInput!) {
       channelCreate(input: $input) { channel { id } errors { field message } }
     }`,
-    { input: { name, slug, currencyCode: "EUR", defaultCountry: "IT" } },
+    {
+      input: {
+        name,
+        slug,
+        currencyCode: "EUR",
+        defaultCountry: "IT",
+        // Brain: decision-019 — i pagamenti offline (bonifico / carta del docente)
+        // materializzano ordini NON pagati; senza allowUnpaidOrders Saleor rifiuta
+        // checkoutComplete con "Provided payment methods can not cover the checkout's
+        // total amount". Va settato QUI perche' i portali nascono via questo path
+        // (Studio/Payload), non via seed/onboard-school.ts.
+        orderSettings: { allowUnpaidOrders: true, automaticallyConfirmAllNewOrders: true },
+      },
+    },
   );
   checkErrors(created.channelCreate.errors, "channelCreate");
   const id = created.channelCreate.channel?.id;
