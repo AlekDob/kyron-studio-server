@@ -652,13 +652,28 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             // (mai una riga con id == slug nudo). Senza capacity matchiamo per
             // slug, cosi' uno sconto sull'intero prodotto multi-taglio (es.
             // percent 5.5% sul MacBook Neo) non da' un falso "non trovato".
-            const row = products.find((p) =>
+            const rows = products.filter((p) =>
               d.capacity ? p.id === `${d.slug}#${d.capacity}` : p.slug === d.slug,
             );
-            if (!row) {
+            if (rows.length === 0) {
               errors.push(`Prodotto "${d.slug}${d.capacity ? `#${d.capacity}` : ""}" non trovato su Saleor.`);
               continue;
             }
+            // Sconto EUR su prodotto multi-taglio SENZA capacity: ambiguo. I tagli
+            // hanno listini diversi (iPad 128=509, 256=639): senza capacity
+            // matcheremmo il PRIMO taglio a caso e il confronto "finale >= listino"
+            // scarterebbe/accetterebbe lo sconto contro il prezzo sbagliato
+            // (bug de-amicis 2026-07-08: 599 vs listino 128GB 509 -> silent drop).
+            // L'enable poi fallirebbe comunque (eur su multivariante senza capacity).
+            // Chiedi il taglio invece di indovinare.
+            if (d.kind === "eur" && !d.capacity && rows.some((r) => r.capacitySlug)) {
+              const tagli = rows.map((r) => r.capacitySlug).filter(Boolean).join(", ");
+              errors.push(
+                `${d.slug}: ha piu' tagli (${tagli}). Per uno sconto in EUR specifica il taglio con capacity (es. '256gb'), perche' il prezzo finale vale per UN taglio.`,
+              );
+              continue;
+            }
+            const row = rows[0];
             if (d.kind === "percent" && (d.value <= 0 || d.value > 90)) {
               errors.push(`${d.slug}: percent ${d.value} fuori range 1-90.`);
             }
