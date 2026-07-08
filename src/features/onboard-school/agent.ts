@@ -617,13 +617,13 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       }),
       update_discounts: tool({
         description:
-          "Sostituisce l'intera lista catalog.productDiscounts di un portale (cambi sconto richiesti dai commerciali). kind 'eur' = PREZZO FINALE in EUR (non lo sconto!); kind 'percent' = percentuale 1-90. capacity (es. '128gb') limita lo sconto a quel taglio. Passa la lista COMPLETA (non un diff: gli sconti omessi vengono rimossi). Dopo, applica con apply_to_saleor.",
+          "Sostituisce l'intera lista catalog.productDiscounts di un portale (cambi sconto richiesti dai commerciali). kind 'eur' = PREZZO FINALE in EUR (non lo sconto!); kind 'percent' = percentuale 1-90. capacity (es. '128gb') limita lo sconto a quel taglio. IMPORTANTE: per i prodotti con tagli (iPad, MacBook) DEVI SEMPRE ricavare la capacity dal testo dell'utente e passarla — es. 'iPad A16 256' -> capacity '256gb', '128' -> '128gb', '512' -> '512gb', '1TB' -> '1tb'. Uno sconto 'eur' su un prodotto multi-taglio SENZA capacity viene rifiutato (il prezzo finale vale per un taglio solo). Passa la lista COMPLETA (non un diff: gli sconti omessi vengono rimossi). Dopo, applica con apply_to_saleor.",
         parameters: z.object({
           portalSlug: z.string(),
           productDiscounts: z.array(
             z.object({
               slug: z.string(),
-              capacity: z.string().nullable().describe("slug taglio (es. '128gb') o null = prodotto intero"),
+              capacity: z.string().nullable().describe("slug taglio (es. '128gb', '256gb', '512gb') — OBBLIGATORIO per prodotti con tagli (iPad/MacBook): ricavalo dal numero detto dall'utente ('256' -> '256gb'). null SOLO per prodotti a taglio unico (cover, penna, alimentatore)."),
               kind: z.enum(["percent", "eur"]),
               value: z.number().positive(),
             }),
