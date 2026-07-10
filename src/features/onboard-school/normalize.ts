@@ -17,6 +17,7 @@ const EUR_FINAL_PRICE_MIN_RATIO = 0.3;
 interface VariantIndex {
   sku: string;
   capacities: string[]; // slug valori attributo capacita (di norma 1)
+  priceEur: number; // listino pieno della variante (undiscounted, fallback price)
 }
 
 interface ProductIndex {
@@ -53,6 +54,7 @@ const CATALOG_INDEX_QUERY = `
           pricing { priceRange { start { gross { amount } } } }
           variants {
             sku
+            pricing { price { gross { amount } } priceUndiscounted { gross { amount } } }
             attributes { attribute { slug } values { slug } }
           }
         }
@@ -68,6 +70,10 @@ interface RawNode {
   pricing: { priceRange: { start: { gross: { amount: number } } } } | null;
   variants: Array<{
     sku: string;
+    pricing: {
+      price: { gross: { amount: number } } | null;
+      priceUndiscounted: { gross: { amount: number } } | null;
+    } | null;
     attributes: Array<{ attribute: { slug: string }; values: Array<{ slug: string }> }>;
   }> | null;
 }
@@ -107,6 +113,10 @@ export async function fetchCatalogIndex(): Promise<Map<string, ProductIndex>> {
       minPriceEur: node.pricing?.priceRange.start.gross.amount ?? 0,
       variants: (node.variants ?? []).map((v) => ({
         sku: v.sku,
+        priceEur:
+          v.pricing?.priceUndiscounted?.gross.amount ??
+          v.pricing?.price?.gross.amount ??
+          0,
         capacities: v.attributes
           .filter((a) => a.attribute.slug === "capacita")
           .flatMap((a) => a.values.map((val) => val.slug)),
@@ -267,6 +277,18 @@ function ensureDiscountedProductsPublished(doc: NormalizableSchool, fixes: strin
 
 // `eur` = PREZZO FINALE, non sconto: un valore molto sotto il listino e' il
 // sintomo classico (es. AppleCare value:4 invece di 75).
+// Listino di riferimento per validare un productDiscount eur: se lo sconto e'
+// su un taglio (capacity), usa il listino minimo delle SOLE varianti di quel
+// taglio; altrimenti il minPriceEur del prodotto. Fallback al minPriceEur se il
+// taglio non ha varianti prezzate.
+function baselineForDiscount(product: ProductIndex, capacity?: string | null): number {
+  if (!capacity) return product.minPriceEur;
+  const prices = product.variants
+    .filter((v) => v.capacities.includes(capacity) && v.priceEur > 0)
+    .map((v) => v.priceEur);
+  return prices.length ? Math.min(...prices) : product.minPriceEur;
+}
+
 function checkDiscounts(
   doc: NormalizableSchool,
   index: Map<string, ProductIndex>,
@@ -287,7 +309,11 @@ function checkDiscounts(
       kept.push(d);
       continue;
     }
-    const listino = product.minPriceEur;
+    // Baseline PER-TAGLIO: uno sconto su un taglio alto (es. iPad 256) va
+    // confrontato col listino di QUEL taglio, non col minPriceEur del prodotto
+    // (= taglio piu' economico). Senza questo, uno sconto valido su un taglio
+    // alto veniva scartato come "finale >= listino" (bug capacity-blind).
+    const listino = baselineForDiscount(product, d.capacity);
     if (listino > 0 && d.value >= listino) {
       // finale >= listino = nessuno sconto su quella variante (es. "procedi coi
       // prezzi di listino"): NON e' un errore, scarta la voce (resta a listino).
