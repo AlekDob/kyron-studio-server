@@ -2,7 +2,7 @@
 type: feature
 project: studio-server
 created: 2026-06-12
-last_verified: 2026-07-08
+last_verified: 2026-07-10
 tags: [portals, saleor, onboarding, pipeline, unpaid-orders, offline-payments, money-path, kyron-ops]
 status: implemented-local
 ---
@@ -81,7 +81,7 @@ Cross-ref: `Kyron/documentation/decisions/decision-020-kyron-ops-privileged-oper
 ## Gotcha ereditati (dal seed CLI)
 
 - hidden-but-purchasable: `isPublished:true, visibleInListings:false, isAvailableForPurchase:true`
-- promo `eur`: baseline = `priceUndiscounted` (listino pieno), channel riallineato prima della promo
+- promo `eur`: baseline = `priceUndiscounted` (listino pieno), channel riallineato prima della promo. La sanity di `normalize.checkDiscounts` usa la baseline PER-TAGLIO (`baselineForDiscount`), non il min del prodotto — vedi gotcha 2026-07-10
 - voucher: `applyOncePerOrder:false` o lo sconto FIXED si cappa sulla riga piu' economica
 - il beat celery NON sempre applica le Promotion da solo: `promotionsOnSale:false` nel report = serve recalc. Ora automatizzato via `opsRecalc` (kyron-ops, decision-020) quando il piano ha sconti; se kyron-ops non e' configurato resta manuale
 - **recalc manuale (path import cambiati in questa versione Saleor, verificato 2026-07-08)**: il vecchio `saleor.discount.utils.promotion import update_variant_relations_for_active_promotion_rules_task` NON esiste piu' (ImportError). Path corretti: `from saleor.discount.tasks import set_promotion_rule_variants_task` + `from saleor.product.utils.variant_prices import update_discounted_prices_for_promotion` + `from saleor.product.models import Product`, poi `set_promotion_rule_variants_task()` (collega varianti↔regola) e `update_discounted_prices_for_promotion(Product.objects.all())`. Container prod api = `api-rn5te82k0yswv28s63z2o85s`
@@ -95,6 +95,40 @@ Cross-ref: `Kyron/documentation/decisions/decision-020-kyron-ops-privileged-oper
 **Fix**: uno sconto `eur` su prodotto multi-taglio SENZA capacity ora e' un errore chiaro ("specifica il taglio, es. '256gb'") invece del silent-drop; descrizione+param `capacity` istruiscono l'agente a ricavare SEMPRE il taglio dal testo ('256' -> '256gb'). Commit `edfd485` + `cc450b6`.
 
 **Incidente de-amicis**: iPad A16 256GB restava 639€ invece di 599€. Fix prod: Promotion FIXED -40€ creata a mano su Saleor + recalc. Il descriptor Payload aveva perso ENTRAMBI gli sconti iPad (update_discounts sostituisce la lista + applyDiscounts e' upsert-only e non rimuove le promo omesse -> drift descriptor↔Saleor); riallineato con `scripts/realign-de-amicis-256.ts`.
+
+## Gotcha: baseline sconto EUR era capacity-blind (fix 2026-07-10)
+
+**Sintomo**: uno sconto `eur` su un taglio ALTO di un prodotto multi-variante spariva
+a ogni enable, anche con `capacity` corretto. Es. iPad A16 256GB → 599€ (portale
+majorana): il descriptor lo aveva, ma dopo `enablePortal` il 256 restava a 639€ pieno
+e la voce spariva dal doc Payload (`markOnboarded` ripersiste il catalogo normalizzato).
+
+**Causa** (`normalize.ts:checkDiscounts`): la baseline di validazione era
+`product.minPriceEur` = prezzo del taglio PIÙ ECONOMICO (iPad 128 = 509), **ignorando
+la capacity dello sconto**. Per il 256 valutava `599 >= 509` → lo classificava
+"finale ≥ listino, nessuno sconto" e lo scartava in silenzio. Diverso dal fix
+2026-07-08 (che imponeva la presenza di `capacity`): lì il taglio c'era, ma la
+baseline restava sbagliata.
+
+**Fix** (commit `ac9fb27`): `baselineForDiscount(product, capacity)` — se lo sconto ha
+un taglio, la baseline è il listino minimo delle SOLE varianti di quel taglio (prezzi
+per-variante ora letti da Saleor in `fetchCatalogIndex`), fallback al `minPriceEur`.
+Dopo il redeploy, l'enable mantiene lo sconto (`promo eur: ipada16-256gb 639 -> 599`).
+
+**Due gap correlati emersi nello stesso incidente (majorana 2026-07-10):**
+
+- **Promo orfane al cambio valore**: `upsertPromotion` (seed-steps) cerca la promo
+  esistente per NOME, e il nome include il valore (`Kyron <slug> <prod> <N>EUR`).
+  Se il prezzo cambia (es. cover 23→24), crea una promo nuova ma NON cancella la
+  vecchia; restano più Promotion CATALOGUE sulla stessa variante e Saleor applica la
+  PIÙ BASSA → il prezzo "si blocca" al valore vecchio. Fix majorana: cancellate a mano
+  le promo `coverone` stale (23EUR + -20%), tenuta solo `24EUR`, poi recalc. Bonifica
+  di massa da valutare (visto anche `santomauro` con 24EUR duplicato).
+- **Enable de-lista solo per prodotto intero, non per taglio**: la riconciliazione
+  rimozioni (`applyVisibilityAndPricing` → `listChannelProductSlugs`) è per-slug. Un
+  taglio tolto da `visibleVariants` (es. iPad 512) NON viene de-listato se il prodotto
+  resta a catalogo → resta acquistabile/visibile. In Saleor 3.23 non c'è delete listing
+  per-variante: usare `productChannelListingUpdate(id, input:{updateChannels:[{channelId, removeVariants:[...]}]})`.
 
 ## Money-path: allowUnpaidOrders sul channel (fix 2026-07-01)
 
