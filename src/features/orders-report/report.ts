@@ -4,6 +4,7 @@
 import { fetchOrdersForDay } from "@/core/saleor/orders.js";
 import { sendKyronEmail, recipientsFromEnv } from "@/core/email/mailer.js";
 import { armDailyJob, romeYesterday } from "@/core/scheduler.js";
+import { buildPortalIndex } from "@/features/orders/enrich.js";
 import { groupByPortal, renderOrdersHtml } from "./render.js";
 
 const DEFAULT_TO = "team@kyronedu.it,gmail@alekdob.com";
@@ -30,7 +31,18 @@ export async function sendDailyOrdersReport(): Promise<void> {
     n === 0
       ? `Ordini Kyron — ${label}: nessun ordine`
       : `Ordini Kyron — ${label}: ${n} ordin${n === 1 ? "e" : "i"}`;
-  const html = renderOrdersHtml(groupByPortal(orders), label);
+  // Indice slug portale -> email agente (best-effort: se Payload non risponde,
+  // il digest esce comunque, senza la riga agente).
+  let agentBySlug = new Map<string, string>();
+  try {
+    const index = await buildPortalIndex();
+    agentBySlug = new Map(
+      Array.from(index.entries()).map(([slug, m]) => [slug, m.agent]),
+    );
+  } catch (err) {
+    console.error("[orders-report] buildPortalIndex fallito:", (err as Error).message);
+  }
+  const html = renderOrdersHtml(groupByPortal(orders, agentBySlug), label);
   await sendKyronEmail(subject, html, recipientsFromEnv("ORDERS_REPORT_TO", DEFAULT_TO));
 }
 

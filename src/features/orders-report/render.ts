@@ -15,16 +15,27 @@ const fmtEur = new Intl.NumberFormat("it-IT", {
 export interface PortalGroup {
   slug: string;
   name: string;
+  // Email agente commerciale di riferimento (PendingSchools.requestedBy), vuoto se ignoto.
+  agent: string;
   orders: OrderSummary[];
 }
 
 // Raggruppa per channel (portale), ordinati per numero ordini decrescente.
-export function groupByPortal(orders: OrderSummary[]): PortalGroup[] {
+// `agentBySlug` (opzionale) associa lo slug portale all'email dell'agente.
+export function groupByPortal(
+  orders: OrderSummary[],
+  agentBySlug?: Map<string, string>,
+): PortalGroup[] {
   const map = new Map<string, PortalGroup>();
   for (const o of orders) {
     const g =
       map.get(o.channelSlug) ??
-      { slug: o.channelSlug, name: o.channelName || o.channelSlug, orders: [] };
+      {
+        slug: o.channelSlug,
+        name: o.channelName || o.channelSlug,
+        agent: agentBySlug?.get(o.channelSlug) ?? "",
+        orders: [],
+      };
     g.orders.push(o);
     map.set(o.channelSlug, g);
   }
@@ -86,6 +97,7 @@ function portalSection(g: PortalGroup): string {
   return `<tr><td style="padding:26px 40px 0;font-family:${FONT};">
       <div style="font-size:16px;font-weight:700;color:${TEAL};">${esc(g.name)}</div>
       <div style="font-size:13px;color:${MUTED};">${g.orders.length} ordini &middot; ${fmtEur.format(sub)}</div>
+      ${g.agent ? `<div style="font-size:13px;color:${MUTED};">Agente: <span style="color:${TEAL};">${esc(g.agent)}</span></div>` : ""}
     </td></tr>${g.orders.map(orderCard).join("")}`;
 }
 
