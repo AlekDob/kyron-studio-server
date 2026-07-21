@@ -186,9 +186,10 @@ const LINE_DELETE = `
     orderLineDelete(id: $id) { order { id } errors { field message } }
   }`;
 
-const LINES_ADD = `
+// Saleor 3.23: la mutation e' orderLinesCreate (non orderLinesAdd).
+const LINES_CREATE = `
   mutation($id: ID!, $input: [OrderLineCreateInput!]!) {
-    orderLinesAdd(id: $id, input: $input) {
+    orderLinesCreate(id: $id, input: $input) {
       order { total { gross { amount } } }
       errors { field message }
     }
@@ -223,8 +224,10 @@ export async function updateLineQuantity(
 }
 
 // Cambia la variante (colore) di una riga: Saleor non permette lo swap in-place,
-// quindi delete + add della nuova variante. Il totale commerciale resta invariato
-// (il colore non cambia prezzo): lo ri-forziamo al valore pre-edit.
+// quindi si aggiunge la nuova variante e si cancella la vecchia. Ordine SICURO
+// (add PRIMA di delete): se l'add fallisce la riga originale resta intatta, invece
+// di perderla. Il totale commerciale resta invariato (il colore non cambia prezzo):
+// lo ri-forziamo al valore pre-edit.
 export async function changeLineVariant(
   orderId: string,
   lineId: string,
@@ -232,13 +235,13 @@ export async function changeLineVariant(
   quantity: number,
 ): Promise<number> {
   const before = await fetchEditContext(orderId);
-  const del = await saleorAdmin<{ orderLineDelete: MutErrors }>(LINE_DELETE, { id: lineId });
-  throwOnErrors(del.orderLineDelete, "orderLineDelete");
-  const add = await saleorAdmin<{ orderLinesAdd: MutErrors }>(LINES_ADD, {
+  const add = await saleorAdmin<{ orderLinesCreate: MutErrors }>(LINES_CREATE, {
     id: orderId,
     input: [{ variantId: newVariantId, quantity }],
   });
-  throwOnErrors(add.orderLinesAdd, "orderLinesAdd");
+  throwOnErrors(add.orderLinesCreate, "orderLinesCreate");
+  const del = await saleorAdmin<{ orderLineDelete: MutErrors }>(LINE_DELETE, { id: lineId });
+  throwOnErrors(del.orderLineDelete, "orderLineDelete");
   return readjustTotal(orderId, before.total);
 }
 
