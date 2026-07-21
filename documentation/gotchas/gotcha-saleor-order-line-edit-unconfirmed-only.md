@@ -48,8 +48,20 @@ Implementazione: `studio-server/src/core/saleor/order-edit.ts` (`changeLineVaria
 `UNCONFIRMED`; il frontend (`EditableLines`) mostra i controlli solo se editabile.
 
 **Cambio colore** = altra variante stessa capacità: naviga le varianti sorelle
-(attributi `capacita`/`colore`) e usa `orderLineDelete`+`orderLinesAdd` (lo swap
+(attributi `capacita`/`colore`) e usa `orderLinesCreate`+`orderLineDelete` (lo swap
 in-place non esiste); il colore non cambia prezzo → target = totale pre-edit.
+
+Due dettagli **verificati su draft prod** (2026-07-21):
+- La mutation è **`orderLinesCreate`**, NON `orderLinesAdd` (che non esiste in 3.23 →
+  400 "Cannot query field orderLinesAdd").
+- **Aggiungi PRIMA, cancella DOPO**: se fai delete e poi l'add fallisce, la riga è
+  persa e l'ordine resta a 0 righe (successo su money-path reale). Add-prima-di-delete
+  lascia intatta la riga originale in caso di errore.
+- Test superato: cambio colore mantiene il totale esatto (501,36 → 501,36) riusando lo
+  sconto MANUALE (non ne aggiunge un secondo); cambio qty 1→2 scala il totale
+  (501,36 → 1002,72) e ricalcola lo sconto (7,64 → 15,28). Validato su ordine DRAFT
+  (mutation identiche a UNCONFIRMED); resta da fare uno smoke test su un ordine reale
+  con **voucher bundle** (kit) per il caso voucher-collapse.
 
 > Validare su un **ordine draft di prod** (reversibile) prima del go-live reale:
 > confermare che totale scontato e voucher bundle restino corretti dopo l'edit.
