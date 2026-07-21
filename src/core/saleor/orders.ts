@@ -51,6 +51,18 @@ export interface OrderSummary {
   teacherCardAcquired: boolean;
   // Bonifico segnato come incassato dal team (metadata bankTransferPaidAt).
   bankTransferPaid: boolean;
+  // Brain: decision-019 — pagamento misto: residuo dopo il buono Carta del Docente.
+  // Metodo del residuo ("card" | "bank-transfer" | "none" / "") e importo; il residuo
+  // "card" e' gia' incassato da Stripe al checkout, quello "bank-transfer" va incassato
+  // manualmente dal team (tranche 2). residualPaid = residuo bonifico gia' segnato.
+  residualMethod: string;
+  residualAmount: number | null;
+  residualPaid: boolean;
+  // Nota libera dell'operatore (metadata kyron_note), visibile in Studio + FootNotes Danea.
+  note: string;
+  // Aliquota IVA forzata a livello ordine (metadata kyron_vat_override), es. "4".
+  // Annotazione per l'export Danea (Parte C1); vuota = nessun override.
+  vatOverride: string;
   lines: OrderLine[];
 }
 
@@ -200,6 +212,13 @@ function mapOrder(n: OrderNode): OrderSummary {
       : null,
     teacherCardAcquired: Boolean(orderMeta(n, "teacherCardAcquiredAt")),
     bankTransferPaid: Boolean(orderMeta(n, "bankTransferPaidAt")),
+    residualMethod: orderMeta(n, "teacherCardResidualMethod"),
+    residualAmount: orderMeta(n, "teacherCardResidualAmount")
+      ? Number(orderMeta(n, "teacherCardResidualAmount"))
+      : null,
+    residualPaid: Boolean(orderMeta(n, "teacherCardResidualPaidAt")),
+    note: orderMeta(n, "kyron_note"),
+    vatOverride: orderMeta(n, "kyron_vat_override"),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
       name: l.productName,
@@ -325,12 +344,19 @@ export async function fetchOrderHeader(orderId: string): Promise<OrderHeader> {
   return { number: o.number, userEmail: o.userEmail ?? "", channelName: o.channel?.name ?? "" };
 }
 
-// Totale lordo + importo buono Carta del Docente (metadata pubblico
-// `teacherCardAmount`). Serve a decidere se il buono copre l'intero ordine
-// (-> orderMarkAsPaid all'acquisizione, vedi features/orders/teacher-card.ts).
-export async function fetchOrderCoverage(
-  orderId: string,
-): Promise<{ total: number; teacherCardAmount: number | null }> {
+// Totale lordo + importo buono Carta del Docente + residuo (metadata pubblici).
+// Serve a decidere se l'ordine e' saldato all'acquisizione del buono
+// (-> orderMarkAsPaid, vedi features/orders/teacher-card.ts): il buono copre tutto,
+// oppure il residuo e' su carta (gia' incassato da Stripe al checkout). Un residuo
+// via bonifico resta invece da incassare a mano (tranche 2, no markPaid qui).
+export interface OrderCoverage {
+  total: number;
+  teacherCardAmount: number | null;
+  residualMethod: string;
+  residualAmount: number | null;
+}
+
+export async function fetchOrderCoverage(orderId: string): Promise<OrderCoverage> {
   const query = `query($id: ID!){ order(id: $id){ total { gross { amount } } metadata { key value } } }`;
   const res = await fetch(saleorApiUrl(), {
     method: "POST",
@@ -348,8 +374,15 @@ export async function fetchOrderCoverage(
   };
   const o = json.data?.order;
   if (!o) throw new Error("order not found");
-  const raw = o.metadata?.find((m) => m.key === "teacherCardAmount")?.value;
-  return { total: o.total.gross.amount, teacherCardAmount: raw ? Number(raw) : null };
+  const meta = (k: string) => o.metadata?.find((m) => m.key === k)?.value;
+  const card = meta("teacherCardAmount");
+  const residual = meta("teacherCardResidualAmount");
+  return {
+    total: o.total.gross.amount,
+    teacherCardAmount: card ? Number(card) : null,
+    residualMethod: meta("teacherCardResidualMethod") ?? "",
+    residualAmount: residual ? Number(residual) : null,
+  };
 }
 
 // Tutti gli ordini creati in una data (YYYY-MM-DD), ordinati per numero.

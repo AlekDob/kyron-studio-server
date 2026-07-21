@@ -17,14 +17,18 @@ export async function markTeacherCardAcquired(
   const acquiredAt = new Date().toISOString();
   await setOrderMeta(orderId, "teacherCardAcquiredAt", acquiredAt);
 
-  // Se il buono copre l'intero totale l'ordine e' saldato -> FULLY_CHARGED.
-  // Coverage parziale (residuo via Stripe/bonifico) NON viene marcata qui.
-  // Best-effort: l'acquisizione (metadata) e' gia' registrata; un fallimento
-  // del mark-paid viene loggato senza far fallire l'azione (tolleranza 0,5 cent).
+  // L'ordine e' saldato all'acquisizione del buono quando NON resta un residuo
+  // bonifico da incassare a mano: il buono copre tutto, oppure il residuo e' su
+  // carta (gia' incassato da Stripe al checkout). Se invece il residuo e' via
+  // bonifico, l'ordine resta "acconto" e attende la tranche 2 (residual-paid).
+  // Best-effort: l'acquisizione (metadata) e' gia' registrata; un fallimento del
+  // mark-paid viene loggato senza far fallire l'azione (tolleranza 0,5 cent).
   let markedPaid = false;
   try {
-    const { total, teacherCardAmount } = await fetchOrderCoverage(orderId);
-    if (teacherCardAmount !== null && teacherCardAmount + 0.005 >= total) {
+    const { total, teacherCardAmount, residualMethod } = await fetchOrderCoverage(orderId);
+    const coversAll = teacherCardAmount !== null && teacherCardAmount + 0.005 >= total;
+    const residualOnCard = residualMethod === "card";
+    if ((coversAll || residualOnCard) && residualMethod !== "bank-transfer") {
       await markOrderAsPaid(orderId);
       markedPaid = true;
     }

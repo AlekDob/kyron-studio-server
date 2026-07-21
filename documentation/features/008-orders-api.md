@@ -8,6 +8,26 @@ tags: [orders, saleor, gateway, portals, commerciali]
 
 # Feature 008 — API ordini per il modulo Ordini di Studio
 
+> **Update 2026-07-21**: endpoint di scrittura aggiunti per le estensioni del modulo
+> Ordini (studio feature 010).
+> - `POST /api/v1/orders/teacher-card-residual-paid` — **pagamento misto tranche 2**:
+>   incasso del residuo bonifico dopo il buono Carta del Docente → `orderMarkAsPaid`
+>   + metadata `teacherCardResidualPaidAt` + mail. `markResidualBankTransferPaid` in
+>   `features/orders/bank-transfer.ts`. `markTeacherCardAcquired` ora salda l'ordine
+>   solo se il buono copre tutto **o** il residuo è su carta (già su Stripe); residuo
+>   bonifico → resta "acconto". `OrderSummary`/`fetchOrderCoverage` leggono
+>   `teacherCardResidualMethod`/`teacherCardResidualAmount`.
+> - `PATCH /api/v1/orders/note` — nota operatore (`kyron_note`) via `setOrderMeta`;
+>   letta anche dall'export Danea (FootNotes).
+> - `PATCH /api/v1/orders/vat-override` — override IVA ordine (`kyron_vat_override`),
+>   letto da `resolveVat` ecommerce (l'IVA non è modellata su Saleor).
+> - `GET /api/v1/orders/edit?id=` + `POST /api/v1/orders/line` — **editing reale righe**
+>   (qty / cambio colore-variante) SOLO su ordini `UNCONFIRMED` (money-path). Nuovo
+>   `src/core/saleor/order-edit.ts`: `orderLineUpdate` / `orderLineDelete`+`orderLinesAdd`
+>   + navigazione varianti sorelle + **re-adjust totale** (riusa lo sconto MANUALE
+>   esistente, misura-e-correggi, come `forceOrderTotalViaDiscount`; MAI rimuovere il
+>   voucher bundle). Da validare su ordine draft prod prima del go-live.
+
 Endpoint READ `GET /api/v1/orders` che lista gli ordini Saleor in un intervallo di
 date, **arricchiti** con i metadati portale (agente commerciale, codice meccanografico,
 link al portale). Backend del modulo Ordini frontend (studio feature 010). Riusa la

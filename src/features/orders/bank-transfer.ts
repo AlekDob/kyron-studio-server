@@ -45,6 +45,41 @@ export async function markBankTransferPaid(
   return { paidAt, emailed };
 }
 
+// Brain: decision-019 — pagamento misto: tranche 2. Il team ha incassato il
+// residuo bonifico DOPO aver acquisito il buono Carta del Docente. Ora buono +
+// residuo coprono il totale -> marca l'ordine pagato (FULLY_CHARGED), registra il
+// timestamp dedicato (teacherCardResidualPaidAt, distinto dal bonifico puro per
+// chiarezza audit) e conferma al cliente con la stessa mail "bonifico ricevuto".
+export async function markResidualBankTransferPaid(
+  orderId: string,
+): Promise<{ paidAt: string; emailed: boolean }> {
+  const paidAt = new Date().toISOString();
+  await markOrderAsPaid(orderId);
+
+  try {
+    await setOrderMeta(orderId, "teacherCardResidualPaidAt", paidAt);
+  } catch (e) {
+    console.warn("[bank-transfer] residual paidAt meta failed:", String(e));
+  }
+
+  let emailed = false;
+  try {
+    const { number, userEmail, channelName } = await fetchOrderHeader(orderId);
+    const to = userEmail.trim();
+    if (to) {
+      await sendKyronEmail(
+        `Bonifico ricevuto — Ordine #${number}`,
+        renderPaidEmail(number, channelName),
+        [to],
+      );
+      emailed = true;
+    }
+  } catch (e) {
+    console.warn("[bank-transfer] residual paid email failed:", String(e));
+  }
+  return { paidAt, emailed };
+}
+
 // Email "bonifico ricevuto / ordine confermato" nel design system Kyron.
 function renderPaidEmail(orderNumber: string, portalName: string): string {
   const portal = portalName ? ` sul portale <strong>${portalName}</strong>` : "";

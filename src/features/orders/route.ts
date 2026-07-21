@@ -14,7 +14,13 @@ import {
   isWorkflowStatus,
 } from "./status.js";
 import { markTeacherCardAcquired } from "./teacher-card.js";
-import { markBankTransferPaid } from "./bank-transfer.js";
+import { markBankTransferPaid, markResidualBankTransferPaid } from "./bank-transfer.js";
+import { setOrderMeta } from "@/core/saleor/orders.js";
+import {
+  fetchOrderForEdit,
+  updateLineQuantity,
+  changeLineVariant,
+} from "@/core/saleor/order-edit.js";
 
 // GET /api/v1/orders?from=YYYY-MM-DD&to=YYYY-MM-DD&portal=slug&agent=email
 // Vista situazione ordini per i commerciali (feature 008). Accesso: tutti gli
@@ -146,6 +152,103 @@ ordersRoute.post("/bank-transfer-paid", async (c) => {
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: "paid_failed", detail: String(err) }, 502);
+  }
+});
+
+// POST /api/v1/orders/teacher-card-residual-paid — pagamento misto tranche 2:
+// il team ha incassato il residuo bonifico dopo il buono. Marca pagato (decision-019).
+ordersRoute.post("/teacher-card-residual-paid", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = acquiredSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  try {
+    const result = await markResidualBankTransferPaid(parsed.data.id);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json({ error: "paid_failed", detail: String(err) }, 502);
+  }
+});
+
+// PATCH /api/v1/orders/note — nota libera dell'operatore (metadata kyron_note),
+// visibile in Studio e riportata nelle FootNotes dell'export Danea (Parte B).
+const noteSchema = z.object({ id: z.string().min(1), note: z.string().max(2000) });
+
+ordersRoute.patch("/note", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = noteSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  try {
+    await setOrderMeta(parsed.data.id, "kyron_note", parsed.data.note);
+    return c.json({ ok: true, note: parsed.data.note });
+  } catch (err) {
+    return c.json({ error: "note_failed", detail: String(err) }, 502);
+  }
+});
+
+// PATCH /api/v1/orders/vat-override — aliquota IVA forzata a livello ordine
+// (metadata kyron_vat_override), letta dall'export Danea (Parte C1, annotazione).
+// Stringa vuota = rimuovi override. Vale l'intero ordine (granularita' semplice).
+const vatSchema = z.object({ id: z.string().min(1), vat: z.string().max(8) });
+
+ordersRoute.patch("/vat-override", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = vatSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  try {
+    await setOrderMeta(parsed.data.id, "kyron_vat_override", parsed.data.vat);
+    return c.json({ ok: true, vat: parsed.data.vat });
+  } catch (err) {
+    return c.json({ error: "vat_failed", detail: String(err) }, 502);
+  }
+});
+
+// GET /api/v1/orders/edit?id=... — vista editing riga (Parte C2). Ritorna
+// editable=true solo per ordini UNCONFIRMED + le opzioni colore per riga.
+ordersRoute.get("/edit", async (c) => {
+  const id = c.req.query("id");
+  if (!id) return c.json({ error: "invalid_query" }, 400);
+  try {
+    return c.json(await fetchOrderForEdit(id));
+  } catch (err) {
+    return c.json({ error: "edit_view_failed", detail: String(err) }, 502);
+  }
+});
+
+// POST /api/v1/orders/line — editing reale riga su ordine UNCONFIRMED (money-path):
+// cambio quantita' (quantity) o cambio colore/variante (variantId). Dopo l'edit
+// ri-forza il totale commerciale. Saleor rifiuta se l'ordine non e' editabile.
+const lineSchema = z
+  .object({
+    id: z.string().min(1), // order global ID
+    lineId: z.string().min(1),
+    quantity: z.number().int().positive().optional(),
+    variantId: z.string().min(1).optional(),
+  })
+  .refine((v) => v.quantity !== undefined || v.variantId !== undefined, {
+    message: "quantity or variantId required",
+  });
+
+ordersRoute.post("/line", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = lineSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  const { id, lineId, quantity, variantId } = parsed.data;
+  try {
+    // Cambio variante prevale sul cambio quantita' (il colore porta la sua qty).
+    const total = variantId
+      ? await changeLineVariant(id, lineId, variantId, quantity ?? 1)
+      : await updateLineQuantity(id, lineId, quantity!);
+    return c.json({ ok: true, total });
+  } catch (err) {
+    return c.json({ error: "line_edit_failed", detail: String(err) }, 502);
   }
 });
 
