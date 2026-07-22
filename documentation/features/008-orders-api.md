@@ -8,6 +8,19 @@ tags: [orders, saleor, gateway, portals, commerciali]
 
 # Feature 008 — API ordini per il modulo Ordini di Studio
 
+> **Update 2026-07-21 (validato in prod + 2 fix)**: validato su un ordine DRAFT
+> throwaway in produzione, attraverso l'endpoint reale (mint cookie `kyron-rev` +
+> chiamata HTTP da dentro il container). Due bug trovati e corretti prima del
+> go-live: **(1)** la mutation Saleor 3.23 per aggiungere righe è
+> **`orderLinesCreate`**, non `orderLinesAdd` (che non esiste → 400). **(2)**
+> `changeLineVariant` faceva delete-poi-add: se l'add falliva la riga era persa e
+> l'ordine restava a 0 righe. Ora è **add-prima-di-delete** (se l'add fallisce la
+> riga originale resta intatta). Con il fix: cambio colore mantiene il totale
+> esatto riusando lo sconto MANUALE esistente (non lo duplica); cambio quantità lo
+> ricalcola correttamente. Manca ancora uno smoke test su un ordine reale con
+> **voucher bundle** (kit) per il caso voucher-collapse. Dettagli:
+> `documentation/gotchas/gotcha-saleor-order-line-edit-unconfirmed-only.md`.
+
 > **Update 2026-07-21**: endpoint di scrittura aggiunti per le estensioni del modulo
 > Ordini (studio feature 010).
 > - `POST /api/v1/orders/teacher-card-residual-paid` — **pagamento misto tranche 2**:
@@ -16,17 +29,19 @@ tags: [orders, saleor, gateway, portals, commerciali]
 >   `features/orders/bank-transfer.ts`. `markTeacherCardAcquired` ora salda l'ordine
 >   solo se il buono copre tutto **o** il residuo è su carta (già su Stripe); residuo
 >   bonifico → resta "acconto". `OrderSummary`/`fetchOrderCoverage` leggono
->   `teacherCardResidualMethod`/`teacherCardResidualAmount`.
+>   `teacherCardResidualMethod`/`teacherCardResidualAmount`. **Fix successivo**: il
+>   pulsante di saldo lato Studio non deve dipendere da `residualMethod` (spesso
+>   assente sugli ordini misti reali) — vedi studio feature 010.
 > - `PATCH /api/v1/orders/note` — nota operatore (`kyron_note`) via `setOrderMeta`;
 >   letta anche dall'export Danea (FootNotes).
 > - `PATCH /api/v1/orders/vat-override` — override IVA ordine (`kyron_vat_override`),
 >   letto da `resolveVat` ecommerce (l'IVA non è modellata su Saleor).
 > - `GET /api/v1/orders/edit?id=` + `POST /api/v1/orders/line` — **editing reale righe**
 >   (qty / cambio colore-variante) SOLO su ordini `UNCONFIRMED` (money-path). Nuovo
->   `src/core/saleor/order-edit.ts`: `orderLineUpdate` / `orderLineDelete`+`orderLinesAdd`
+>   `src/core/saleor/order-edit.ts`: `orderLineUpdate` / `orderLinesCreate`+`orderLineDelete`
 >   + navigazione varianti sorelle + **re-adjust totale** (riusa lo sconto MANUALE
 >   esistente, misura-e-correggi, come `forceOrderTotalViaDiscount`; MAI rimuovere il
->   voucher bundle). Da validare su ordine draft prod prima del go-live.
+>   voucher bundle). Validato su draft prod (vedi update sopra).
 
 Endpoint READ `GET /api/v1/orders` che lista gli ordini Saleor in un intervallo di
 date, **arricchiti** con i metadati portale (agente commerciale, codice meccanografico,

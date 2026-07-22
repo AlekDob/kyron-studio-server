@@ -99,6 +99,10 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /api/v1/orders-report/send        → trigger manuale report ordini email (ADMIN-ONLY) — feature 007
 /api/v1/orders                    → lista ordini Saleor (range date + portale/agente), arricchiti, esclude test — feature 008
 /api/v1/orders/status (PATCH)     → cambia stato lavorazione ordine (kyron_status) + mail "spedito" gato allowlist — feature 008
+/api/v1/orders/teacher-card-residual-paid (POST) → pagamento misto tranche 2: residuo bonifico incassato dopo il buono — feature 008
+/api/v1/orders/note (PATCH)       → nota operatore ordine (kyron_note), riportata nell'export Danea — feature 008
+/api/v1/orders/vat-override (PATCH) → override IVA ordine (kyron_vat_override), annotazione per Danea — feature 008
+/api/v1/orders/edit (GET) + /api/v1/orders/line (POST) → editing reale righe (qty/colore) SOLO ordini UNCONFIRMED, money-path — feature 008
 ```
 
 I report email giornalieri (scheduler in-process armato in `index.ts`, Europe/Rome):
@@ -159,6 +163,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - **Ordini Saleor: Stripe = `pi_` (non `pm_`), dati fiscali in `billingAddress.metadata`**: `documentation/gotchas/gotcha-saleor-order-stripe-pi-and-fiscal-metadata.md` (feature 008).
 - **Doppio PaymentIntent: un ordine puo' avere piu' transazioni Stripe (il primo PI resta orfano "Incomplete"). `pickStripeRef()` in `core/saleor/orders.ts` sceglie la transazione con `chargedAmount > 0`, non la prima — altrimenti il link "Apri su Stripe" punta al PI orfano e l'ordine sembra non pagato**: `../documentation/gotchas/gotcha-stripe-duplicate-payment-intent-orphan.md` (umbrella).
 - **Kit portali: productSlug/SKU validati contro Saleor SOLO al publish (storico)**: i tool agente bundle ora validano all'edit (`validateComponentsAgainstSaleor`), ma attenzione agli slug derivati dal nome e al codice articolo ≠ nome prodotto (es. `MX2D3ZM/A` = Pencil Pro, non USB-C). Vedi `documentation/gotchas/gotcha-portal-kit-slug-mismatch.md`.
+- **Editing riga ordine Saleor: solo DRAFT/UNCONFIRMED, mutation è `orderLinesCreate` (non `orderLinesAdd`), add-prima-di-delete sul cambio variante**: ogni edit rompe il totale scontato (voucher bundle + sconto manuale) → serve re-adjust misura-e-correggi senza mai rimuovere il voucher (auto-conferma l'ordine). Vedi `documentation/gotchas/gotcha-saleor-order-line-edit-unconfirmed-only.md` (feature 008, decision-019).
 
 ## File chiave
 
