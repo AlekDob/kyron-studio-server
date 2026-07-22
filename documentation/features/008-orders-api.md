@@ -67,8 +67,15 @@ lettura ordini di feature 007 (report email).
 Stati: `nuovo|in_preparazione|spedito|consegnato|annullato` (`src/features/orders/status.ts`).
 Su transizione a **`spedito`** invia una mail "ordine spedito" al cliente, **gata da
 `ORDERS_SHIP_NOTIFY_ALLOW`** (CSV): se valorizzata invia solo a quegli indirizzi
-(modalità test, ora `gmail@alekdob.com`), se vuota invia a tutti (go-live).
+(modalità test), se vuota invia a tutti (go-live).
 `OrderSummary` espone `id` (per la mutation) e `workflowStatus`.
+
+**Update 2026-07-22 — go-live**: `ORDERS_SHIP_NOTIFY_ALLOW` svuotata su Coolify prod
+(era `gmail@alekdob.com`) + redeploy, su richiesta esplicita di Alek (>200 ordini reali
+già in produzione). La mail "spedito" ora va a **tutti** i clienti reali sulle nuove
+transizioni a "Spedito" — **non retroattiva**, non rimanda nulla per gli ordini già
+spediti prima del cambio. Le mail di conferma pagamento (bonifico/carta docente,
+`bank-transfer.ts`/`teacher-card.ts`) non sono mai state gate: vanno al cliente da sempre.
 
 ## File
 
