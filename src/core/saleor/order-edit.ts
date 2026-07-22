@@ -10,6 +10,7 @@
 // totale commerciale atteso riusando lo sconto MANUALE gia' presente (bonifico)
 // se c'e', oppure aggiungendone uno nuovo — MAI rimuovere il voucher (auto-conferma).
 import { saleorApiUrl } from "./client.js";
+import { parseLineColors } from "./orders.js";
 
 function appToken(): string {
   const token = process.env.SALEOR_APP_TOKEN;
@@ -57,11 +58,20 @@ export interface EditLine {
   quantity: number;
   variantId: string;
   colorSlug: string; // colore corrente (per evidenziarlo)
+  colorName: string; // nome colore acquistato (originale), es. "Grigio siderale"
   colorOptions: ColorOption[]; // varianti sorelle stessa capacita', colore diverso
+  requestedColor: string; // colore richiesto via annotazione (kyron_line_colors), o ""
 }
 
+// Modalita' di editing riga:
+// - "edit"    ordine UNCONFIRMED: modifica REALE (qty/colore) su Saleor (money-path)
+// - "annotate" ordine confermato ma non spedito: cambio colore solo come ANNOTAZIONE
+// - "locked"   ordine spedito/consegnato/annullato: sola lettura
+export type EditMode = "edit" | "annotate" | "locked";
+
 export interface OrderEdit {
-  editable: boolean; // true solo se UNCONFIRMED
+  mode: EditMode;
+  editable: boolean; // retro-compat: true solo se mode === "edit"
   status: string;
   total: number;
   lines: EditLine[];
@@ -71,6 +81,7 @@ const ORDER_EDIT_QUERY = `
   query OrderEdit($id: ID!) {
     order(id: $id) {
       status
+      metadata { key value }
       total { gross { amount } }
       channel { slug }
       lines {
@@ -90,6 +101,7 @@ const ORDER_EDIT_QUERY = `
 
 interface OrderEditNode {
   status: string;
+  metadata: Array<{ key: string; value: string }> | null;
   total: { gross: { amount: number } };
   channel: { slug: string } | null;
   lines: Array<{
@@ -141,34 +153,58 @@ async function colorOptionsFor(
   return opts;
 }
 
+// Stati che bloccano ogni modifica riga (ordine gia' evaso o chiuso). Lo stato
+// lavorazione Kyron (kyron_status) prevale sul flusso: "spedito" chiude la finestra.
+const LOCKED_WORKFLOW = new Set(["spedito", "consegnato", "annullato"]);
+const LOCKED_SALEOR = new Set(["FULFILLED", "CANCELED"]);
+
+// Decide la modalita' di editing: reale (bozza), annotazione (confermato non spedito)
+// o sola lettura (spedito/annullato). Brain: gotcha-saleor-order-line-edit-unconfirmed-only.
+function editModeFor(saleorStatus: string, workflowStatus: string): EditMode {
+  if (saleorStatus === "UNCONFIRMED") return "edit";
+  if (LOCKED_WORKFLOW.has(workflowStatus) || LOCKED_SALEOR.has(saleorStatus)) return "locked";
+  return "annotate";
+}
+
 // Vista editing di un ordine: righe con le opzioni colore disponibili. Le opzioni
-// sono calcolate solo se l'ordine e' editabile (evita query inutili sui confermati).
+// sono calcolate se l'ordine e' modificabile o annotabile (non su quelli chiusi).
 export async function fetchOrderForEdit(orderId: string): Promise<OrderEdit> {
   const { order } = await saleorAdmin<{ order: OrderEditNode | null }>(ORDER_EDIT_QUERY, { id: orderId });
   if (!order) throw new Error("order not found");
-  const editable = order.status === "UNCONFIRMED";
+  const workflowStatus = order.metadata?.find((m) => m.key === "kyron_status")?.value ?? "nuovo";
+  const mode = editModeFor(order.status, workflowStatus);
+  const changes = parseLineColors(order.metadata?.find((m) => m.key === "kyron_line_colors")?.value ?? "");
   const channel = order.channel?.slug ?? "";
   const lines: EditLine[] = [];
   for (const l of order.lines) {
     const v = l.variant;
     const color = v ? attrValue(v.attributes, "colore") : null;
     const cap = v ? attrValue(v.attributes, "capacita") : null;
+    const sku = v?.sku ?? "";
     const colorOptions =
-      editable && v && color
+      mode !== "locked" && v && color
         ? await colorOptionsFor(v.product.slug, channel, cap?.slug ?? null, color.slug)
         : [];
     lines.push({
       id: l.id,
       productName: l.productName,
       variantName: l.variantName,
-      sku: v?.sku ?? "",
+      sku,
       quantity: l.quantity,
       variantId: v?.id ?? "",
       colorSlug: color?.slug ?? "",
+      colorName: color?.name ?? "",
       colorOptions,
+      requestedColor: changes.find((c) => c.sku === sku)?.to ?? "",
     });
   }
-  return { editable, status: order.status, total: order.total.gross.amount, lines };
+  return {
+    mode,
+    editable: mode === "edit",
+    status: order.status,
+    total: order.total.gross.amount,
+    lines,
+  };
 }
 
 // --- Mutation righe ------------------------------------------------------------

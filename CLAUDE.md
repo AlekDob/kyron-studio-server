@@ -103,6 +103,7 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /api/v1/orders/note (PATCH)       → nota operatore ordine (kyron_note), riportata nell'export Danea — feature 008
 /api/v1/orders/vat-override (PATCH) → override IVA ordine (kyron_vat_override), annotazione per Danea — feature 008
 /api/v1/orders/edit (GET) + /api/v1/orders/line (POST) → editing reale righe (qty/colore) SOLO ordini UNCONFIRMED, money-path — feature 008
+/api/v1/orders/line-color (POST) → cambio colore come ANNOTAZIONE su ordini confermati non spediti (metadata kyron_line_colors, decision-019); no money-path, visibile Studio + area cliente + Danea
 ```
 
 I report email giornalieri (scheduler in-process armato in `index.ts`, Europe/Rome):

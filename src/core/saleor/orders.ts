@@ -12,6 +12,30 @@ export interface OrderLine {
   totalGross: number;
 }
 
+// Brain: decision-019 — cambio colore "annotazione" su ordini gia' confermati.
+// Saleor non lascia editare le righe di un ordine confermato: il colore scelto NON
+// modifica la riga, viene salvato come metadata pubblico `kyron_line_colors` (acquisto
+// originale `from` -> nuovo colore `to`) e mostrato in Studio, area ordini cliente e
+// nell'export Danea. Chiave = SKU della riga (upsert per SKU, no doppioni).
+export interface LineColorChange {
+  sku: string;
+  product: string; // productName (per il display, es. "Apple iPad A16")
+  from: string; // colore originale acquistato
+  to: string; // colore richiesto
+}
+
+// Parse tollerante del metadata `kyron_line_colors` (array JSON). Vuoto se assente
+// o malformato: un metadata sporco non deve far cadere la lista ordini.
+export function parseLineColors(raw: string): LineColorChange[] {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw) as LineColorChange[];
+    return Array.isArray(list) ? list.filter((c) => c?.sku && c?.to) : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface OrderSummary {
   // Global ID Saleor (serve per le mutation, es. cambio stato lavorazione).
   id: string;
@@ -63,6 +87,8 @@ export interface OrderSummary {
   // Aliquota IVA forzata a livello ordine (metadata kyron_vat_override), es. "4".
   // Annotazione per l'export Danea (Parte C1); vuota = nessun override.
   vatOverride: string;
+  // Cambi colore annotati su ordini confermati (metadata kyron_line_colors).
+  colorChanges: LineColorChange[];
   lines: OrderLine[];
 }
 
@@ -219,6 +245,7 @@ function mapOrder(n: OrderNode): OrderSummary {
     residualPaid: Boolean(orderMeta(n, "teacherCardResidualPaidAt")),
     note: orderMeta(n, "kyron_note"),
     vatOverride: orderMeta(n, "kyron_vat_override"),
+    colorChanges: parseLineColors(orderMeta(n, "kyron_line_colors")),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
       name: l.productName,
@@ -297,6 +324,22 @@ export async function setOrderMeta(
   };
   const err = json.errors?.[0] ?? json.data?.updateMetadata.errors?.[0];
   if (err) throw new Error(`updateMetadata: ${err.message}`);
+}
+
+// Legge un metadata pubblico dell'ordine (stringa; vuota se assente). Usato per
+// l'upsert del cambio colore (leggi-modifica-scrivi su kyron_line_colors).
+export async function fetchOrderMeta(orderId: string, key: string): Promise<string> {
+  const query = `query($id: ID!){ order(id: $id){ metadata { key value } } }`;
+  const res = await fetch(saleorApiUrl(), {
+    method: "POST",
+    headers: authHeaders(appToken()),
+    body: JSON.stringify({ query, variables: { id: orderId } }),
+  });
+  if (!res.ok) throw new Error(`Saleor order ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as {
+    data?: { order: { metadata: Array<{ key: string; value: string }> | null } | null };
+  };
+  return json.data?.order?.metadata?.find((m) => m.key === key)?.value ?? "";
 }
 
 // Marca un ordine come PAGATO in Saleor (orderMarkAsPaid) — usato per i bonifici

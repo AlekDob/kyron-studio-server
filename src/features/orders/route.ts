@@ -21,6 +21,7 @@ import {
   updateLineQuantity,
   changeLineVariant,
 } from "@/core/saleor/order-edit.js";
+import { setLineColor } from "./line-color.js";
 
 // GET /api/v1/orders?from=YYYY-MM-DD&to=YYYY-MM-DD&portal=slug&agent=email
 // Vista situazione ordini per i commerciali (feature 008). Accesso: tutti gli
@@ -249,6 +250,33 @@ ordersRoute.post("/line", async (c) => {
     return c.json({ ok: true, total });
   } catch (err) {
     return c.json({ error: "line_edit_failed", detail: String(err) }, 502);
+  }
+});
+
+// POST /api/v1/orders/line-color — cambio colore come ANNOTAZIONE su ordini
+// confermati (decision-019). NON tocca Saleor: salva l'acquisto originale + il colore
+// richiesto in metadata pubblico (kyron_line_colors), visibile in Studio, area ordini
+// cliente ed export Danea. `to` vuoto = rimuove l'annotazione (torna all'originale).
+const lineColorSchema = z.object({
+  id: z.string().min(1),
+  sku: z.string().min(1),
+  product: z.string().min(1),
+  from: z.string().max(120).default(""),
+  to: z.string().max(120), // "" = rimuove
+});
+
+ordersRoute.post("/line-color", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = lineColorSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  const { id, ...change } = parsed.data;
+  try {
+    const changes = await setLineColor(id, change);
+    return c.json({ ok: true, changes });
+  } catch (err) {
+    return c.json({ error: "line_color_failed", detail: String(err) }, 502);
   }
 });
 
