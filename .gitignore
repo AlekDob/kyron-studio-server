@@ -12,3 +12,6 @@ data/settings.json
 data/brain-documents.json
 data/brain-chunks.json
 data/*.tmp
+
+# fastembed model cache (pinky brain) — mai in git, pesa centinaia di MB
+.fastembed_cache/

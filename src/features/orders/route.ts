@@ -20,6 +20,7 @@ import {
   fetchOrderForEdit,
   updateLineQuantity,
   changeLineVariant,
+  setOrderTotal,
 } from "@/core/saleor/order-edit.js";
 import { setLineColor } from "./line-color.js";
 
@@ -206,6 +207,28 @@ ordersRoute.patch("/vat-override", async (c) => {
     return c.json({ ok: true, vat: parsed.data.vat });
   } catch (err) {
     return c.json({ error: "vat_failed", detail: String(err) }, 502);
+  }
+});
+
+// PATCH /api/v1/orders/payment-total — allinea il totale dell'ordine (es. IVA 22%
+// -> 4%). Ibrido: ordine UNCONFIRMED = cambio reale (money-path), confermato =
+// annotazione kyron_payment_amount_override, spedito/annullato = 409. amount<=0
+// rimuove l'annotazione. Brain: decision-019 (money-path + annotazione).
+const paymentTotalSchema = z.object({ id: z.string().min(1), amount: z.number().min(0) });
+
+ordersRoute.patch("/payment-total", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = paymentTotalSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  try {
+    const result = await setOrderTotal(parsed.data.id, parsed.data.amount);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("order locked")) return c.json({ error: "order_locked" }, 409);
+    return c.json({ error: "payment_total_failed", detail: msg }, 502);
   }
 });
 

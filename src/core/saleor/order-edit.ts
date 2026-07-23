@@ -10,7 +10,7 @@
 // totale commerciale atteso riusando lo sconto MANUALE gia' presente (bonifico)
 // se c'e', oppure aggiungendone uno nuovo — MAI rimuovere il voucher (auto-conferma).
 import { saleorApiUrl } from "./client.js";
-import { parseLineColors } from "./orders.js";
+import { parseLineColors, setOrderMeta } from "./orders.js";
 
 function appToken(): string {
   const token = process.env.SALEOR_APP_TOKEN;
@@ -380,4 +380,48 @@ async function applyDiscountUpdate(discountId: string, amount: number, reason: s
   }>(DISCOUNT_UPDATE, { discountId, input: { valueType: "FIXED", value: amount, reason } });
   throwOnErrors(data.orderDiscountUpdate, "orderDiscountUpdate");
   return data.orderDiscountUpdate.order!.total.gross.amount;
+}
+
+// --- Importo pagamento (ibrido reale/annotazione) ------------------------------
+// Il commerciale allinea il totale dell'ordine a Danea (es. cliente ordina a IVA
+// 22% e poi l'ordine viene rifatto a IVA 4%, importo minore). Comportamento in
+// base allo stato (editModeFor):
+// - "edit"     ordine UNCONFIRMED: cambio REALE via readjustTotal (money-path).
+// - "annotate" ordine confermato: Saleor non lascia toccare il totale -> salva
+//              l'importo come annotazione (metadata kyron_payment_amount_override),
+//              mostrata in Studio. amount<=0 (o "") rimuove l'annotazione.
+// - "locked"   ordine spedito/annullato: rifiuta.
+export const PAYMENT_AMOUNT_META = "kyron_payment_amount_override";
+
+const ORDER_STATE_QUERY = `
+  query($id: ID!) {
+    order(id: $id) { status metadata { key value } total { gross { amount } } }
+  }`;
+
+export interface SetOrderTotalResult {
+  mode: EditMode;
+  total: number; // totale reale Saleor dopo l'operazione
+  override: number | null; // annotazione salvata (solo mode "annotate"), o null
+}
+
+export async function setOrderTotal(orderId: string, amount: number): Promise<SetOrderTotalResult> {
+  const { order } = await saleorAdmin<{
+    order: {
+      status: string;
+      metadata: Array<{ key: string; value: string }> | null;
+      total: { gross: { amount: number } };
+    } | null;
+  }>(ORDER_STATE_QUERY, { id: orderId });
+  if (!order) throw new Error("order not found");
+  const workflowStatus = order.metadata?.find((m) => m.key === "kyron_status")?.value ?? "nuovo";
+  const mode = editModeFor(order.status, workflowStatus);
+  if (mode === "locked") throw new Error("order locked");
+  if (mode === "edit") {
+    const total = await readjustTotal(orderId, round2(amount));
+    return { mode, total, override: null };
+  }
+  // annotate: importo <= 0 rimuove l'annotazione (torna al totale reale)
+  const value = amount > 0 ? String(round2(amount)) : "";
+  await setOrderMeta(orderId, PAYMENT_AMOUNT_META, value);
+  return { mode, total: order.total.gross.amount, override: value ? Number(value) : null };
 }

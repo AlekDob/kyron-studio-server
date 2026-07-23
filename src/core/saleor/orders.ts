@@ -87,6 +87,11 @@ export interface OrderSummary {
   // Aliquota IVA forzata a livello ordine (metadata kyron_vat_override), es. "4".
   // Annotazione per l'export Danea (Parte C1); vuota = nessun override.
   vatOverride: string;
+  // Importo totale annotato dall'operatore su ordini confermati (metadata
+  // kyron_payment_amount_override): allinea la vista Studio al totale rifatto a
+  // mano (es. IVA 4%) quando Saleor non lascia toccare il totale reale. Null se
+  // assente o se il totale e' stato cambiato davvero (ordini UNCONFIRMED).
+  paymentAmountOverride: number | null;
   // Cambi colore annotati su ordini confermati (metadata kyron_line_colors).
   colorChanges: LineColorChange[];
   lines: OrderLine[];
@@ -245,6 +250,9 @@ function mapOrder(n: OrderNode): OrderSummary {
     residualPaid: Boolean(orderMeta(n, "teacherCardResidualPaidAt")),
     note: orderMeta(n, "kyron_note"),
     vatOverride: orderMeta(n, "kyron_vat_override"),
+    paymentAmountOverride: orderMeta(n, "kyron_payment_amount_override")
+      ? Number(orderMeta(n, "kyron_payment_amount_override"))
+      : null,
     colorChanges: parseLineColors(orderMeta(n, "kyron_line_colors")),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",
