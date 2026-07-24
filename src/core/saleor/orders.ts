@@ -92,6 +92,10 @@ export interface OrderSummary {
   // mano (es. IVA 4%) quando Saleor non lascia toccare il totale reale. Null se
   // assente o se il totale e' stato cambiato davvero (ordini UNCONFIRMED).
   paymentAmountOverride: number | null;
+  // Feature 002 — stato richiesta IVA agevolata 4% dal checkout
+  // (kyron_vat_agevolata_status): "requested" (da validare) | "approved" |
+  // "rejected". Vuoto = nessuna richiesta agevolazione.
+  vatReliefStatus: string;
   // Cambi colore annotati su ordini confermati (metadata kyron_line_colors).
   colorChanges: LineColorChange[];
   lines: OrderLine[];
@@ -253,6 +257,7 @@ function mapOrder(n: OrderNode): OrderSummary {
     paymentAmountOverride: orderMeta(n, "kyron_payment_amount_override")
       ? Number(orderMeta(n, "kyron_payment_amount_override"))
       : null,
+    vatReliefStatus: orderMeta(n, "kyron_vat_agevolata_status"),
     colorChanges: parseLineColors(orderMeta(n, "kyron_line_colors")),
     lines: n.lines.map((l) => ({
       sku: l.productSku ?? "",

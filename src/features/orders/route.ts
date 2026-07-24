@@ -210,6 +210,37 @@ ordersRoute.patch("/vat-override", async (c) => {
   }
 });
 
+// PATCH /api/v1/orders/vat-agevolata — valida la richiesta di IVA agevolata 4%
+// arrivata dal checkout (feature 002). approve = status "approved" (l'export Danea
+// applica il 4%); reject = status "rejected" + rimuove kyron_vat_override (torna
+// 22%). NON tocca il totale: il riallineo importo lo fa l'operatore in UI
+// (proposta 4% pre-compilata, poi conferma/modifica via /payment-total).
+const vatAgevolataSchema = z.object({
+  id: z.string().min(1),
+  action: z.enum(["approve", "reject"]),
+});
+
+ordersRoute.patch("/vat-agevolata", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = vatAgevolataSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+  const { id, action } = parsed.data;
+  try {
+    if (action === "approve") {
+      await setOrderMeta(id, "kyron_vat_agevolata_status", "approved");
+    } else {
+      // Rifiuto: torna all'aliquota standard (rimuove l'override 4%).
+      await setOrderMeta(id, "kyron_vat_agevolata_status", "rejected");
+      await setOrderMeta(id, "kyron_vat_override", "");
+    }
+    return c.json({ ok: true, status: action === "approve" ? "approved" : "rejected" });
+  } catch (err) {
+    return c.json({ error: "vat_agevolata_failed", detail: String(err) }, 502);
+  }
+});
+
 // PATCH /api/v1/orders/payment-total — allinea il totale dell'ordine (es. IVA 22%
 // -> 4%). Ibrido: ordine UNCONFIRMED = cambio reale (money-path), confermato =
 // annotazione kyron_payment_amount_override, spedito/annullato = 409. amount<=0
