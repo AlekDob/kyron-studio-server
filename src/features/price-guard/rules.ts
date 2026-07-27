@@ -118,12 +118,32 @@ function expectedDiscounted(kind: "eur" | "percent", value: number, undisc: numb
   return kind === "eur" ? value : round2(undisc * (1 - value / 100));
 }
 
+// Un productDiscount conta solo se il prodotto e' davvero acquistabile DA SOLO su
+// quel portale. I prodotti in hiddenSlugs si vendono unicamente dentro un kit, dove
+// il prezzo pagato e' (somma componenti − voucher): il loro listino unitario su
+// Saleor e' irrilevante. Analogamente un discount su un prodotto/taglio non piu' a
+// catalogo e' un residuo storico del descriptor, non un'anomalia.
+// Verificato in prod 2026-07-27: AppleCare (hidden, 13 portali) e iPad 128 su Fermi
+// (che vende solo neo13a18) erano falsi positivi per questo motivo.
+function isSoldStandalone(ctx: PortalContext, slug: string, capacity: string | null): boolean {
+  const { visibleSlugs, visibleVariants } = ctx.portal.catalog;
+  if (capacity) {
+    return visibleVariants.some((v) => v.productSlug === slug && v.value === capacity);
+  }
+  // Prodotto intero: a catalogo come slug, oppure con almeno un taglio pubblicato.
+  return (
+    visibleSlugs.includes(slug) || visibleVariants.some((v) => v.productSlug === slug)
+  );
+}
+
 // REGOLA 2 — sconto sparito: un productDiscount su Payload non riflesso su Saleor.
+// Solo per i prodotti acquistabili singolarmente (vedi isSoldStandalone).
 const discountVanished: Rule = {
   id: "discount-vanished",
   run: async (ctx) => {
     const out: Anomaly[] = [];
     for (const d of ctx.portal.catalog.productDiscounts) {
+      if (!isSoldStandalone(ctx, d.slug, d.capacity)) continue;
       const product = await fetchProduct(ctx.target, d.slug, ctx.channel, ctx.cache);
       if (!product) continue;
       const variants = d.capacity
