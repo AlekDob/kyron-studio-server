@@ -16,6 +16,10 @@ import { armDailyReport } from "@/features/analytics/report.js";
 import { ordersReportRoute } from "@/features/orders-report/route.js";
 import { armDailyOrdersReport } from "@/features/orders-report/report.js";
 import { ordersRoute } from "@/features/orders/route.js";
+import { priceGuardRoute } from "@/features/price-guard/route.js";
+import { priceGuardAgentRoute } from "@/features/price-guard/agent-route.js";
+import { armDailyPriceGuard } from "@/features/price-guard/report.js";
+import { vatReliefAgentRoute, vatReliefRoute } from "@/features/vat-relief/route.js";
 import { getEcommerceSettings } from "@/features/settings/store.js";
 
 // Brain: decision-013 — studio-server e' il prodotto agentico orizzontale di
@@ -54,17 +58,23 @@ app.route("/settings", settingsRoute);
 app.route("/api/v1/collections", collectionsRoute);
 app.route("/agents/data-editor", dataEditorRoute);
 app.route("/agents/review-editor", reviewEditorRoute);
+app.route("/agents/price-guard", priceGuardAgentRoute);
+app.route("/agents/vat-relief", vatReliefAgentRoute);
 app.route("/api/v1/portals", portalsRoute);
 app.route("/auth", authRoute);
 app.route("/api/v1/studio-users", studioUsersRoute);
 app.route("/api/v1/analytics", analyticsRoute);
 app.route("/api/v1/orders-report", ordersReportRoute);
 app.route("/api/v1/orders", ordersRoute);
+app.route("/api/v1/price-guard", priceGuardRoute);
+app.route("/api/v1/vat-relief", vatReliefRoute);
 
 // Report analytics giornaliero via email (opt-in: ANALYTICS_REPORT_ENABLED).
 armDailyReport();
 // Report ordini giornaliero via email alle 09:30 (opt-in: ORDERS_REPORT_ENABLED).
 armDailyOrdersReport();
+// Price Guard: check prezzi/sconti alle 08:00, mail solo se anomalie (opt-in: PRICE_GUARD_ENABLED).
+armDailyPriceGuard();
 
 const port = Number(process.env.PORT ?? 8790);
 serve({ fetch: app.fetch, port }, (info) => {

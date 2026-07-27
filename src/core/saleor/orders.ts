@@ -268,6 +268,27 @@ function mapOrder(n: OrderNode): OrderSummary {
   };
 }
 
+// Un ordine per NUMERO visibile (quello che l'operatore legge in Studio, es.
+// "326"). Saleor non filtra per number: usa la search, che lo matcha, e poi
+// confronta esatto. Stessa query e stesso mapper della lista.
+export async function fetchOrderByNumber(
+  number: string,
+): Promise<OrderSummary | null> {
+  const res = await fetch(saleorApiUrl(), {
+    method: "POST",
+    headers: authHeaders(appToken()),
+    body: JSON.stringify({
+      query: ORDERS_QUERY,
+      variables: { filter: { search: number }, first: 20, after: null },
+    }),
+  });
+  if (!res.ok) throw new Error(`Saleor order ${res.status}: ${await res.text()}`);
+  const json = (await res.json()) as OrdersResponse;
+  if (json.errors?.length) throw new Error(`Saleor order: ${json.errors[0].message}`);
+  const hit = json.data!.orders.edges.find((e) => e.node.number === number);
+  return hit ? mapOrder(hit.node) : null;
+}
+
 // Pagina tutti gli ordini che matchano un OrderFilterInput.created range,
 // ordinati per numero. Pagina finche' hasNextPage. Helper condiviso da
 // fetchOrdersForDay (giorno singolo) e fetchOrdersForRange (intervallo).
