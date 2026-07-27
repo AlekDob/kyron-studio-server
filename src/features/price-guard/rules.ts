@@ -61,8 +61,12 @@ const kitReconciliation: Rule = {
           type: "component-missing",
           severity: "medium",
           kit: bundle.slug,
-          detail: `Componenti non trovati su Saleor: ${missing.join(", ")}`,
+          detail: `Componenti non risolti su Saleor (SKU errato o prodotto assente): ${missing.join(", ")}. Verifica il campo variantSku del kit: spesso contiene lo slug del prodotto invece dello SKU.`,
         });
+        // Senza tutti i componenti la somma e' incompleta: riconciliare darebbe
+        // uno scarto inventato (es. "scontati 0€ − voucher"). Il problema da
+        // risolvere e' lo SKU; la riconciliazione tornera' valida dopo il fix.
+        continue;
       }
       if (voucher === null) {
         out.push({
@@ -138,7 +142,10 @@ const discountVanished: Rule = {
             expected: want,
             shown: v.priceAmount,
             delta: round2(v.priceAmount - want),
-            detail: `Sconto configurato non applicato su Saleor: prezzo ${v.priceAmount}€, atteso ${want}€`,
+            detail:
+              v.priceAmount >= v.undiscountedAmount
+                ? `Sconto non applicato su Saleor: prezzo pieno ${v.priceAmount}€, atteso ${want}€`
+                : `Sconto applicato solo in parte su Saleor: prezzo ${v.priceAmount}€ (listino ${v.undiscountedAmount}€), atteso ${want}€`,
           });
           break; // un'anomalia per discount basta
         }

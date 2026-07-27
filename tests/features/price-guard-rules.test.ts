@@ -10,9 +10,11 @@ const state: { prices: Record<string, number>; voucher: number | null } = {
 
 vi.mock("@/features/price-guard/reads.js", () => ({
   fetchProduct: vi.fn(async () => ({ id: "p", slug: "s", variants: [] })),
-  resolveVariant: (_p: unknown, comp: { productSlug: string }) => ({
-    priceAmount: state.prices[comp.productSlug] ?? 0,
-  }),
+  // null = variante non risolta (SKU errato o prodotto assente sul channel).
+  resolveVariant: (_p: unknown, comp: { productSlug: string }) =>
+    comp.productSlug in state.prices
+      ? { priceAmount: state.prices[comp.productSlug] }
+      : null,
   readVoucherDiscount: vi.fn(async () => state.voucher),
   readChannelSettings: vi.fn(async () => ({ isActive: true, allowUnpaid: true })),
 }));
@@ -83,5 +85,16 @@ describe("kit-reconciliation", () => {
     const out = await kitRule.run(ctx(100));
     expect(out).toHaveLength(1);
     expect(out[0].type).toBe("voucher-missing");
+  });
+
+  // Regressione (giro a secco prod 2026-07-27): con un componente non risolto la
+  // somma e' incompleta e riconciliare produceva scarti inventati ("scontati 0€").
+  it("con componente non risolto segnala solo component-missing, senza riconciliare", async () => {
+    state.prices = { ipad: 90 }; // 'cover' non risolve -> priceAmount 0
+    state.voucher = 30;
+    const out = await kitRule.run(ctx(100));
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe("component-missing");
+    expect(out.some((a) => a.type.startsWith("kit-"))).toBe(false);
   });
 });

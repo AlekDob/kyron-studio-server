@@ -73,14 +73,25 @@ function enabledRules(ids?: string[]): Rule[] {
   return RULES.filter((r) => wanted.includes(r.id));
 }
 
+// Channel che NON sono portali scuola: hanno un doc Payload "onboarded" ma sono
+// canali del main shop (es. carta-docente), dove l'intero catalogo e' in vendita.
+// Controllarli genera falsi positivi (tagli "stale" che sono legittimi).
+function excludedSlugs(): Set<string> {
+  const raw = process.env.PRICE_GUARD_EXCLUDE_PORTALS ?? "carta-docente,scuola-demo";
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
 // Solo le scuole onboarded hanno un channel Saleor con prezzi/voucher da controllare.
 async function portalsToCheck(slug?: string): Promise<PortalDetail[]> {
   if (slug) {
     const p = await getPortal(slug);
     return p ? [p] : [];
   }
+  const skip = excludedSlugs();
   const summaries = await listPortals();
-  const onboarded = summaries.filter((s) => s.status === "onboarded");
+  const onboarded = summaries.filter(
+    (s) => s.status === "onboarded" && !skip.has(s.slug),
+  );
   const details = await Promise.all(onboarded.map((s) => getPortal(s.slug)));
   return details.filter((p): p is PortalDetail => Boolean(p));
 }
