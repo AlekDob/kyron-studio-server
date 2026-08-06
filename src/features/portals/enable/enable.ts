@@ -62,7 +62,7 @@ interface PubPlan {
 
 // Port di buildPubPlans del seed: unione di visibleSlugs/visibleVariants/
 // hiddenSlugs + componenti bundle (che devono essere prezzati per il checkout).
-function buildPubPlans(config: EnablePortalConfig): Map<string, PubPlan> {
+export function buildPubPlans(config: EnablePortalConfig): Map<string, PubPlan> {
   const plans = new Map<string, PubPlan>();
   const merge = (slug: string, mode: PubPlan["mode"], caps: Set<string> | null) => {
     const prev = plans.get(slug);
@@ -90,6 +90,20 @@ function buildPubPlans(config: EnablePortalConfig): Map<string, PubPlan> {
           ? c.selection.valueFilter?.capacita
           : undefined;
       merge(c.productSlug, "hidden-purchasable", cap ? new Set([cap]) : null);
+    }
+  }
+  // Brain: gotcha-portal-bundle-component-visible — con heroOutsideBundle=false
+  // i componenti del kit si vendono SOLO nel kit. Il merge sopra non basta:
+  // "visible" vince sempre, quindi un componente dimenticato in hiddenSlugs
+  // (o selezionato a mano nel picker) restava a scaffale singolo. La verita' e'
+  // il flag, non la lista: forziamo hidden-purchasable a valle del merge.
+  // (bug colombo 2026-07-29: alimentatore del kit iPad in vendita singola).
+  if (!config.catalog.heroOutsideBundle) {
+    for (const b of config.bundles) {
+      for (const c of b.components) {
+        const plan = plans.get(c.productSlug);
+        if (plan?.mode === "visible") plan.mode = "hidden-purchasable";
+      }
     }
   }
   return plans;

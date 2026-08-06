@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toEnableConfig } from "@/features/portals/enable/config.js";
 import { voucherCodeFor } from "@/features/portals/enable/seed-steps.js";
+import { buildPubPlans } from "@/features/portals/enable/enable.js";
 import type { PortalDetail } from "@/features/portals/reader.js";
 
 // PortalDetail minimale come arriva dal reader (jsonb Payload gia' normalizzato),
@@ -83,6 +84,32 @@ describe("toEnableConfig", () => {
       selection: { kind: "fixed" },
     };
     expect(() => toEnableConfig(broken)).toThrow(/variantSku/);
+  });
+});
+
+describe("buildPubPlans — componenti kit mai a scaffale", () => {
+  // bug colombo 2026-07-29: un componente del kit non elencato in hiddenSlugs
+  // (o rimasto in visibleSlugs dal picker) veniva pubblicato visible e si
+  // vendeva singolo accanto al kit. Con heroOutsideBundle=false vince il flag.
+  it("forza hidden-purchasable sui componenti quando heroOutsideBundle=false", () => {
+    // coverone e' in visibleSlugs ED e' componente del bundle.
+    const plans = buildPubPlans(toEnableConfig(portalFixture()));
+    expect(plans.get("coverone")?.mode).toBe("hidden-purchasable");
+    expect(plans.get("ipada16")?.mode).toBe("hidden-purchasable");
+  });
+
+  it("rispetta heroOutsideBundle=true (accessori venduti anche sfusi)", () => {
+    const p = portalFixture();
+    p.catalog.heroOutsideBundle = true;
+    const plans = buildPubPlans(toEnableConfig(p));
+    expect(plans.get("coverone")?.mode).toBe("visible");
+  });
+
+  it("lascia visibili i prodotti che non sono componenti di nessun kit", () => {
+    const p = portalFixture();
+    p.catalog.visibleSlugs = ["coverone", "ps-25wo1cb"];
+    const plans = buildPubPlans(toEnableConfig(p));
+    expect(plans.get("ps-25wo1cb")?.mode).toBe("visible");
   });
 });
 

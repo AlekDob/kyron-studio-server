@@ -30,6 +30,16 @@ export const COLLECTIONS: readonly CollectionEntry[] = [
     editable: true,
   },
   {
+    slug: "risorse",
+    label: { it: "Risorse", en: "Resources" },
+    description: {
+      it: "Cataloghi, brochure e materiali scaricabili",
+      en: "Catalogues, brochures and downloadable materials",
+    },
+    purpose: "manage",
+    editable: true,
+  },
+  {
     slug: "products",
     label: { it: "Catalogo prodotti", en: "Product catalog" },
     description: {

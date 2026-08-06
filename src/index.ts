@@ -6,6 +6,7 @@ import { logger } from "hono/logger";
 import { onboardSchoolRoute } from "@/features/onboard-school/route.js";
 import { settingsRoute } from "@/features/settings/settings.route.js";
 import { collectionsRoute } from "@/features/collections/route.js";
+import { mediaRoute } from "@/features/media/route.js";
 import { dataEditorRoute } from "@/features/data-editor/route.js";
 import { reviewEditorRoute } from "@/features/review-editor/route.js";
 import { portalsRoute } from "@/features/portals/route.js";
@@ -19,6 +20,7 @@ import { ordersRoute } from "@/features/orders/route.js";
 import { priceGuardRoute } from "@/features/price-guard/route.js";
 import { priceGuardAgentRoute } from "@/features/price-guard/agent-route.js";
 import { armDailyPriceGuard } from "@/features/price-guard/report.js";
+import { vatReliefAgentRoute, vatReliefRoute } from "@/features/vat-relief/route.js";
 import { getEcommerceSettings } from "@/features/settings/store.js";
 
 // Brain: decision-013 — studio-server e' il prodotto agentico orizzontale di
@@ -55,9 +57,11 @@ app.get("/public/ecommerce-config", async (c) => {
 app.route("/agents/onboard-school", onboardSchoolRoute);
 app.route("/settings", settingsRoute);
 app.route("/api/v1/collections", collectionsRoute);
+app.route("/api/v1/media", mediaRoute);
 app.route("/agents/data-editor", dataEditorRoute);
 app.route("/agents/review-editor", reviewEditorRoute);
 app.route("/agents/price-guard", priceGuardAgentRoute);
+app.route("/agents/vat-relief", vatReliefAgentRoute);
 app.route("/api/v1/portals", portalsRoute);
 app.route("/auth", authRoute);
 app.route("/api/v1/studio-users", studioUsersRoute);
@@ -65,6 +69,7 @@ app.route("/api/v1/analytics", analyticsRoute);
 app.route("/api/v1/orders-report", ordersReportRoute);
 app.route("/api/v1/orders", ordersRoute);
 app.route("/api/v1/price-guard", priceGuardRoute);
+app.route("/api/v1/vat-relief", vatReliefRoute);
 
 // Report analytics giornaliero via email (opt-in: ANALYTICS_REPORT_ENABLED).
 armDailyReport();

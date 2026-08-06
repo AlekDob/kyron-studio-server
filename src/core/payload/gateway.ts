@@ -46,6 +46,7 @@ function isLocalizedObject(
 const SEARCH_FIELDS: Record<string, string[]> = {
   bandi: ["titolo", "slug"],
   eventi: ["titolo", "slug"],
+  risorse: ["titolo", "slug"],
   products: ["name", "slug"],
   brands: ["name", "slug"],
   "product-categories": ["name", "slug"],
@@ -84,7 +85,7 @@ export function makePayloadGateway(tenant: TenantConfig) {
   if (!apiKey) throw new Error("payloadApiKey missing for tenant");
   const headers = buildAuthHeaders(apiKey);
 
-  return {
+  const gw = {
     async list(
       slug: string,
       params: ListParams = {},
@@ -125,17 +126,32 @@ export function makePayloadGateway(tenant: TenantConfig) {
       slug: string,
       data: Record<string, unknown>,
     ): Promise<PayloadDocResponse> {
+      // La POST scrive su una sola locale. I campi localizzati {it,en} vanno
+      // quindi creati con la sola `it` e completati subito dopo con `update`,
+      // che sa spezzare la scrittura per locale (vedi commento sotto).
+      const localizedKeys = Object.keys(data).filter((k) =>
+        isLocalizedObject(data[k]),
+      );
+      const payload: Record<string, unknown> = { ...data };
+      for (const k of localizedKeys) {
+        payload[k] = (data[k] as Record<string, unknown>).it ?? "";
+      }
+
       const res = await fetch(`${base}/${slug}`, {
         method: "POST",
         headers,
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.text();
         throw new Error(`payload create ${slug}: ${res.status} ${err}`);
       }
       const body = (await res.json()) as { doc: Record<string, unknown> };
-      return { data: body.doc };
+      if (localizedKeys.length === 0) return { data: body.doc };
+
+      const localized: Record<string, unknown> = {};
+      for (const k of localizedKeys) localized[k] = data[k];
+      return gw.update(slug, String(body.doc.id), localized);
     },
 
     async update(
@@ -221,6 +237,8 @@ export function makePayloadGateway(tenant: TenantConfig) {
       return body.totalDocs;
     },
   };
+
+  return gw;
 }
 
 export type PayloadGateway = ReturnType<typeof makePayloadGateway>;

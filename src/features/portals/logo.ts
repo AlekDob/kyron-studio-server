@@ -1,4 +1,5 @@
 import { kyronTenant } from "@/config/tenants/kyron.js";
+import { uploadMedia } from "@/core/payload/media.js";
 import { getPortalsGateway, PORTALS_COLLECTION } from "./gateway.js";
 import { findPortalDoc } from "./reader.js";
 
@@ -25,30 +26,14 @@ export async function savePortalLogo(
   const mimeType =
     ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
 
-  const form = new FormData();
-  // Brain: Payload upload via REST accetta multipart con `file` blob +
-  // JSON-encoded `_payload` per i campi extra (es. alt). Vedi
-  // https://payloadcms.com/docs/rest-api/overview#uploads
-  form.append("file", new Blob([data], { type: mimeType }), filename);
-  form.append(
-    "_payload",
-    JSON.stringify({ alt: `Logo ${slug}` }),
+  const uploaded = await uploadMedia(
+    kyronTenant,
+    data,
+    filename,
+    mimeType,
+    `Logo ${slug}`,
   );
-
-  const apiKey = kyronTenant.payloadApiKey;
-  if (!apiKey) throw new Error("payloadApiKey missing");
-
-  const res = await fetch(`${kyronTenant.payloadApiUrl}/media`, {
-    method: "POST",
-    headers: { Authorization: `users API-Key ${apiKey}` },
-    body: form,
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`media upload failed: ${res.status} ${err}`);
-  }
-  const body = (await res.json()) as { doc: { id: string | number } };
-  const mediaId = String(body.doc.id);
+  const mediaId = uploaded.id;
 
   // Se il PendingSchool esiste, linka il media. Altrimenti il logo resta
   // standalone in Media e verra' linkato quando l'agente salvera' il portale.
