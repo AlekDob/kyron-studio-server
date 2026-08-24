@@ -529,7 +529,7 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
             .array(
               z.object({
                 productSlug: z.string().describe("slug REALE del prodotto su Saleor (es. 'ipada16', 'muwa3zm-a', 'ps-25wo1cb'), NON derivato dal nome (no 'ipad'/'alimentatore'). Se non lo conosci, ricavalo dal product picker."),
-                variantSku: z.string().nullable().describe("SKU REALE della variante su Saleor (es. 'MUWA3ZM/A', 'PS-25WO1CB'), NON lo slug. null se usi capacity. I componenti sono validati contro Saleor prima del salvataggio."),
+                variantSku: z.string().nullable().describe("SKU REALE della variante su Saleor (es. 'MUWA3ZM/A', 'PS-25W01CB'), NON lo slug. null se usi capacity. I componenti sono validati contro Saleor prima del salvataggio."),
                 capacity: z.string().nullable().describe("slug taglio capacita (es. '128gb'): il componente diventa by-attribute (cliente sceglie il colore al checkout). null se usi variantSku."),
               }),
             )

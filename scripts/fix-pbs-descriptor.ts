@@ -39,7 +39,7 @@ const FIXED_COMPONENTS: BundleInput["components"] = [
     selection: { kind: "by-attribute", attribute: "colore", valueFilter: { capacita: "128gb" } },
   },
   { productSlug: "coverone", selection: { kind: "variant", variantSku: "CoverONE" } },
-  { productSlug: "ps-25wo1cb", selection: { kind: "variant", variantSku: "PS-25WO1CB" } },
+  { productSlug: "ps-25wo1cb", selection: { kind: "variant", variantSku: "PS-25W01CB" } },
 ];
 
 async function main(): Promise<void> {

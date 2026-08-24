@@ -50,11 +50,11 @@ const CATALOG_RESPONSE = {
         },
         {
           node: {
-            slug: "ps-25wo1cb",
+            slug: "ps-25w01cb",
             name: "Wacebo DABLIU 25W",
             metadata: [],
             pricing: { priceRange: { start: { gross: { amount: 25 } } } },
-            variants: [{ sku: "PS-25WO1CB", attributes: [] }],
+            variants: [{ sku: "PS-25W01CB", attributes: [] }],
           },
         },
         {
@@ -99,7 +99,7 @@ function brokenSiottoDoc(): PendingSchool {
     shippingMethodLabel: "Consegna a scuola",
     shippingPriceEur: 0,
     catalog: {
-      visibleSlugs: ["ps-25wo1cb", "coverone", "applecare-plus-ipad-a16"],
+      visibleSlugs: ["ps-25w01cb", "coverone", "applecare-plus-ipad-a16"],
       visibleVariants: [
         { productSlug: "ipada16", attribute: "capacita", value: "128gb" },
         { productSlug: "ipada16", attribute: "capacita", value: "256gb" },
@@ -127,8 +127,8 @@ function brokenSiottoDoc(): PendingSchool {
             },
           },
           {
-            productSlug: "ps-25wo1cb",
-            selection: { kind: "fixed", variantSku: "ps-25wo1cb" },
+            productSlug: "ps-25w01cb",
+            selection: { kind: "fixed", variantSku: "ps-25w01cb" },
           },
         ],
       },
@@ -161,7 +161,7 @@ describe("normalizePendingSchool", () => {
     const skus = doc.bundles[0].components
       .map((c) => (c.selection.kind === "fixed" ? c.selection.variantSku : null))
       .filter(Boolean);
-    expect(skus).toEqual(["CoverONE", "PS-25WO1CB"]);
+    expect(skus).toEqual(["CoverONE", "PS-25W01CB"]);
 
     // 2. AppleCare fuori dal catalogo visibile, hidden-but-purchasable
     expect(doc.catalog.visibleSlugs).not.toContain("applecare-plus-ipad-a16");
