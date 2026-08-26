@@ -6,7 +6,7 @@
 //    chiaro invece di un 403 opaco.
 // 2. il budget — la Query API sta a ~120 query/ora per key (vedi
 //    analytics/queries.ts) e la stessa key serve /analytics e il report delle
-//    09:00. L'agente ne prende al massimo 40: se sparasse a raffica farebbe
+//    09:00. L'agente ne prende al massimo 60: se sparasse a raffica farebbe
 //    cadere il cruscotto.
 
 export class HogqlRejected extends Error {}
@@ -78,5 +78,7 @@ export function makeQueryBudget(max: number, windowMs: number): QueryBudget {
   };
 }
 
-// 40 all'agente, gli altri ~80 restano a /analytics e al report giornaliero.
-export const statsBudget = makeQueryBudget(40, 60 * 60_000);
+// 60 all'agente (alzato da 40 quando Ada ha preso il marketing: ogni domanda
+// sulle campagne ne spende una in piu' per correlare con PostHog), gli altri
+// ~60 restano a /analytics e al report giornaliero.
+export const statsBudget = makeQueryBudget(60, 60 * 60_000);

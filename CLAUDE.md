@@ -141,6 +141,8 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `ORDERS_REPORT_TO` | CSV destinatari report ordini (default come analytics) |
 | `ORDERS_REPORT_EXCLUDE_EMAILS` | CSV email escluse dal report ordini (smoke test checkout) |
 | `KYRON_SHOP_BASE_URL` | base URL storefront per il link portale nel modulo Ordini (default `https://kyronedu.it/shop`, feature 008) |
+| `META_ACCESS_TOKEN` | token Meta Marketing API (lettura insights campagne, agente Ada) |
+| `META_AD_ACCOUNT_ID` | id account pubblicitario Meta, con o senza prefisso `act_` |
 | `ORDERS_SHIP_NOTIFY_ALLOW` | CSV allowlist destinatari mail "spedito": se valorizzata invia SOLO a quegli indirizzi (test), se vuota invia a tutti (go-live). PROD ora = `gmail@alekdob.com` |
 
 ## Knowledge base

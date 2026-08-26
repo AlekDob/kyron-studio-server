@@ -9,6 +9,7 @@ import { runHogqlWithColumns } from "@/features/analytics/posthog.js";
 import { getOverview } from "@/features/analytics/service.js";
 import { listPortals } from "@/features/portals/reader.js";
 import { HogqlRejected, assertReadOnly, statsBudget } from "./hogql-guard.js";
+import { fetchCampaigns, fetchCampaignDetail } from "./meta-ads.js";
 import { STATS_SYSTEM_PROMPT } from "./prompt.js";
 
 interface AgentRunOptions {
@@ -66,7 +67,7 @@ export async function* runStatsAgent(opts: AgentRunOptions) {
       }),
       run_hogql: tool({
         description:
-          "Esegue una query HogQL di sola lettura su PostHog e la mostra all'utente come tabella, classifica a barre o grafico a linea. Budget 40 query/ora: aggrega con GROUP BY invece di fare tante chiamate.",
+          "Esegue una query HogQL di sola lettura su PostHog e la mostra all'utente come tabella, classifica a barre o grafico a linea. Budget 60 query/ora: aggrega con GROUP BY invece di fare tante chiamate.",
         parameters: z.object({
           query: z.string().describe("la query HogQL, una sola SELECT/WITH"),
           title: z.string().describe("titolo breve in italiano del risultato"),
@@ -93,6 +94,58 @@ export async function* runStatsAgent(opts: AgentRunOptions) {
                 component: "StatsResult",
                 props: { title, columns, rows, view },
                 id: `stats_${Date.now()}`,
+              },
+            };
+          } catch (err) {
+            return { error: readableError(err) };
+          }
+        },
+      }),
+      get_meta_campaigns: tool({
+        description:
+          "Campagne pubblicitarie Meta (Facebook/Instagram) del periodo: spesa, impression, click, CTR, CPC e conversioni dal pixel. Usalo prima di correlare con le visite PostHog.",
+        parameters: z.object({
+          range: z.enum(RANGES).describe("periodo predefinito"),
+        }),
+        execute: async ({ range }) => {
+          try {
+            const campaigns = await fetchCampaigns(range);
+            return {
+              range,
+              campaigns,
+              _ui: {
+                component: "MetaCampaignsCard",
+                props: { title: `Campagne Meta — ${range}`, campaigns },
+                id: `meta_${Date.now()}`,
+              },
+            };
+          } catch (err) {
+            return { error: readableError(err) };
+          }
+        },
+      }),
+      get_meta_campaign_detail: tool({
+        description:
+          "Dettaglio di una campagna Meta spaccato per adset (gruppo di inserzioni). Usalo quando l'utente chiede perche' una campagna rende male.",
+        parameters: z.object({
+          campaignId: z
+            .string()
+            .describe("id campagna, dal risultato di get_meta_campaigns"),
+          range: z.enum(RANGES).describe("periodo predefinito"),
+        }),
+        execute: async ({ campaignId, range }) => {
+          try {
+            const { campaign, adsets } = await fetchCampaignDetail(campaignId, range);
+            return {
+              campaign,
+              adsets,
+              _ui: {
+                component: "MetaCampaignsCard",
+                props: {
+                  title: campaign ? `${campaign.name} — per adset` : "Adset",
+                  campaigns: adsets,
+                },
+                id: `meta_detail_${Date.now()}`,
               },
             };
           } catch (err) {
