@@ -1,4 +1,4 @@
-// Motore del piano prezzi di Kevin. Funzioni PURE: nessuna chiamata di rete,
+// Motore del piano prezzi di Nico. Funzioni PURE: nessuna chiamata di rete,
 // nessuna scrittura. Il piano si calcola qui, si mostra all'utente, e solo un
 // secondo tool lo applica. Cosi' un prezzo non si puo' cambiare in un turno.
 //

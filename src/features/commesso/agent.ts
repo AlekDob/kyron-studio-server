@@ -1,5 +1,5 @@
-// Kevin — agente del modulo Commesso. Legge e scrive il catalogo Saleor.
-// I tool non lanciano mai: un errore torna come dato, cosi' Kevin lo spiega
+// Nico — agente del modulo Commesso. Legge e scrive il catalogo Saleor.
+// I tool non lanciano mai: un errore torna come dato, cosi' Nico lo spiega
 // invece di far cadere lo stream.
 import { streamText, tool } from "ai";
 import { z } from "zod";

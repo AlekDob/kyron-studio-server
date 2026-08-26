@@ -1,4 +1,4 @@
-// Route SSE dell'agente Commesso (Kevin). Stesso protocollo di
+// Route SSE dell'agente Commesso (Nico). Stesso protocollo di
 // onboard-school/route.ts: emette delta / tool / toolResult (+ _ui) / error / [DONE].
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";

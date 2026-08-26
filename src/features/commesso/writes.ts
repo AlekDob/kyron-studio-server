@@ -1,4 +1,4 @@
-// Scritture catalogo di Kevin. Nessuna di queste funzioni tocca un prezzo:
+// Scritture catalogo di Nico. Nessuna di queste funzioni tocca un prezzo:
 // i prezzi passano solo da price-writes.ts (money-path, un punto solo).
 //
 // R3 — dopo create/update il prodotto NON viene pubblicato su nessun canale.
@@ -13,7 +13,7 @@ import {
 
 type Errors = Array<{ field?: string | null; message: string }>;
 
-// Le description Saleor sono JSONString EditorJS: il testo che scrive Kevin va
+// Le description Saleor sono JSONString EditorJS: il testo che scrive Nico va
 // impacchettato, altrimenti l'admin lo mostra vuoto.
 function toEditorJs(text: string): string {
   return JSON.stringify({

@@ -3,7 +3,7 @@
 // Il voucher di un kit e' un importo FISSO in euro (decision-011): il prezzo
 // che il cliente paga e' (somma componenti sul canale - voucher). Cambiare il
 // prezzo di un componente senza ricalcolare il voucher fa vendere il kit al
-// prezzo sbagliato, in silenzio. Prima di lasciar toccare un prezzo, Kevin deve
+// prezzo sbagliato, in silenzio. Prima di lasciar toccare un prezzo, Nico deve
 // sapere se quel prodotto e' dentro un kit e quale voucher va rifatto.
 import { listPortalDetails } from "@/features/portals/reader.js";
 import { voucherCodeFor } from "@/features/portals/enable/seed-steps.js";

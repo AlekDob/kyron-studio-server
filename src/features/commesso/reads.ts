@@ -1,4 +1,4 @@
-// Letture catalogo per Kevin (modulo Commesso). Passano dall'admin API e non
+// Letture catalogo per Nico (modulo Commesso). Passano dall'admin API e non
 // dal client pubblico di core/saleor: qui servono anche i prodotti non
 // pubblicati, le giacenze e i prezzi per singolo canale, che la query pubblica
 // non espone.
