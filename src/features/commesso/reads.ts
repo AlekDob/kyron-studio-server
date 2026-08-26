@@ -122,6 +122,24 @@ export interface ListProductsOptions {
   limit?: number;
 }
 
+/**
+ * La ricerca la facciamo noi, non Saleor. Il `filter: { search }` di Saleor si
+ * appoggia a una colonna di ricerca del database che su questa installazione e'
+ * vuota: cercare "iPad" tornava zero risultati anche con l'iPad in catalogo.
+ * Il catalogo sta in una pagina, quindi filtrare qui costa niente ed e' immune
+ * al problema.
+ * ponytail: filtro in memoria sulla prima pagina. Se il catalogo passa le 200
+ * righe serve la ricerca vera (search vector di Saleor da ripopolare).
+ */
+export function matchesSearch(p: ProductRow, search: string): boolean {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [p.name, p.slug, p.category ?? "", ...p.variants.map((v) => v.sku)]
+    .join(" ")
+    .toLowerCase();
+  return q.split(/\s+/).every((word) => haystack.includes(word));
+}
+
 /** Catalogo completo (anche non pubblicato), opzionalmente filtrato per testo. */
 export async function listProducts(
   target: SaleorTarget,
@@ -129,14 +147,15 @@ export async function listProducts(
 ): Promise<ProductRow[]> {
   const data = await adminRequest<{ products: { edges: Array<{ node: RawProduct }> } }>(
     target,
-    `query ($first: Int!, $search: String) {
-      products(first: $first, filter: { search: $search }) {
+    `query ($first: Int!) {
+      products(first: $first) {
         edges { node { ${PRODUCT_FIELDS} } }
       }
     }`,
-    { first: Math.min(opts.limit ?? 100, 200), search: opts.search ?? null },
+    { first: Math.min(opts.limit ?? 100, 200) },
   );
-  return data.products.edges.map((e) => toProduct(e.node));
+  const rows = data.products.edges.map((e) => toProduct(e.node));
+  return opts.search ? rows.filter((p) => matchesSearch(p, opts.search!)) : rows;
 }
 
 export async function getProduct(
