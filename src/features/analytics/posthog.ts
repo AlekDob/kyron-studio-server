@@ -51,3 +51,27 @@ export async function runHogql(query: string): Promise<unknown[][]> {
   const body = (await res.json()) as { results?: unknown[][] };
   return body.results ?? [];
 }
+
+// Come runHogql ma tiene anche i nomi delle colonne: l'agente Statistiche deve
+// etichettare tabella e grafico, e HogQL le restituisce solo qui nel body.
+export async function runHogqlWithColumns(
+  query: string,
+): Promise<{ columns: string[]; rows: unknown[][] }> {
+  const cfg = getConfig();
+  const res = await fetch(`${cfg.host}/api/projects/${cfg.projectId}/query`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
+  });
+  if (!res.ok) {
+    throw new PosthogQueryError(res.status, (await res.text()).slice(0, 500));
+  }
+  const body = (await res.json()) as {
+    results?: unknown[][];
+    columns?: string[];
+  };
+  return { columns: body.columns ?? [], rows: body.results ?? [] };
+}

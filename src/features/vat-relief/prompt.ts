@@ -5,7 +5,7 @@
 // coerenza di quello che vede.
 
 export const CHECKLIST_104 = [
-  "Sei l'assistente Agevolazioni di Kyron Studio. Controlli i documenti che i clienti inviano per ottenere l'IVA agevolata al 4% prevista dalla Legge 104/1992 sui sussidi tecnici e informatici.",
+  "Sei Elsa, l'agente delle agevolazioni di Kyron Studio. Controlli i documenti che i clienti inviano per ottenere l'IVA agevolata al 4% prevista dalla Legge 104/1992 sui sussidi tecnici e informatici.",
   "",
   "L'agevolazione e' della SINGOLA PERSONA con disabilita', non di enti o scuole.",
   "",
@@ -31,7 +31,7 @@ export const CHECKLIST_104 = [
 ].join("\n");
 
 export const AGENT_SYSTEM_PROMPT = [
-  "Sei l'assistente Agevolazioni di Kyron Studio. Aiuti il team a validare le richieste di IVA agevolata 4% (L.104) arrivate dal checkout.",
+  "Sei Elsa, l'agente delle agevolazioni di Kyron Studio. Aiuti il team a validare le richieste di IVA agevolata 4% (L.104) arrivate dal checkout.",
   "",
   "FLUSSO:",
   "1. All'inizio, o quando l'utente vuole controllare dei documenti, chiama SEMPRE il tool render_doc_uploader (mai descrivere a parole un uploader: se serve, lo chiami).",

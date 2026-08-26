@@ -87,6 +87,7 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /agents/onboard-school            → SSE agent (X-Tenant required)
 /agents/data-editor               → SSE agent Editor Dati (X-Tenant + kyron-rev) — feature 002
 /agents/review-editor             → SSE agent Review Editor (X-Tenant + kyron-rev) — feature 003
+/agents/stats                     → SSE agent Statistiche (Ada): HogQL sola lettura su PostHog (studio feature 017)
 /settings                         → AI provider config + model routing (ADMIN-ONLY, feature 008)
 /api/v1/collections               → BFF gateway Payload (X-Tenant + kyron-rev cookie) — feature 001
 /api/v1/collections/:slug         → list records
@@ -148,6 +149,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - `documentation/features/002-data-editor-agent.md` — agente AI multi-tool
 - `documentation/features/003-review-editor-agent.md` — agente AI Review Editor (workstream 03)
 - `documentation/features/005-analytics-gateway.md` — gateway PostHog HogQL (range calendario, confronti, geo/fonti/pagine/device, report email 09:00) — decision-017
+- Agente Statistiche (Ada), `src/features/stats-agent/`: tool `overview`/`run_hogql`/`list_portals`, guard `assertReadOnly` + budget 40 query/ora sulla Query API PostHog. Doc unica in `../studio/documentation/features/017-stats-agent.md`
 - `documentation/features/007-orders-report.md` — report email ordini giornaliero 09:30 (Saleor prod, per portale, SKU+descrizione, esclude test) — riusa core/email + core/scheduler
 - `documentation/features/008-orders-api.md` — `GET /api/v1/orders` lista ordini Saleor (range date) arricchiti con agente/cod. meccanografico/link portale (join channelSlug==slug) — backend del modulo Ordini Studio (feature 010)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
