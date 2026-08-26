@@ -9,6 +9,8 @@ import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { COMMESSO_SYSTEM_PROMPT } from "./prompt.js";
 import { getCatalogMeta, getProduct, listProducts } from "./reads.js";
 import { planPrices } from "./plan-service.js";
+import { planDaneaImport } from "./danea-service.js";
+import { applyDaneaPlan } from "./danea-apply.js";
 import { applyPricePlan, resolveChannelId } from "./price-writes.js";
 import {
   addProductImage,
@@ -191,6 +193,69 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
             visibleInListings,
           });
           return { ok: true, channelSlug };
+        }),
+      }),
+      render_danea_uploader: tool({
+        description:
+          "Mostra il riquadro per caricare il file EcommProdotti.xml di Danea. Chiamalo ogni volta che serve il file: mai descriverlo a parole.",
+        parameters: z.object({}),
+        execute: async () => ({
+          ready: true,
+          _ui: {
+            component: "DaneaUploader",
+            props: {},
+            id: `danea_${Date.now()}`,
+          },
+        }),
+      }),
+      plan_danea_import: tool({
+        description:
+          "Confronta il file Danea caricato col catalogo: cosa e' nuovo, quali prezzi cambierebbero, cosa e' invariato. NON scrive niente.",
+        parameters: z.object({
+          importId: z.string().describe("id restituito dall'uploader"),
+          channelSlug: z.string().describe("canale su cui confrontare i prezzi"),
+          target: TARGET,
+        }),
+        execute: safe(async ({ importId, channelSlug, target }) => {
+          const plan = await planDaneaImport(target, { importId, channelSlug });
+          return {
+            target,
+            importId,
+            plan,
+            _ui: {
+              component: "DaneaImportPlan",
+              props: { target, plan },
+              id: `daneaplan_${Date.now()}`,
+            },
+          };
+        }),
+      }),
+      apply_danea_import: tool({
+        description:
+          "Crea i prodotti e le varianti NUOVE del piano Danea, col loro prezzo sul canale indicato. Nascono non pubblicati. I prezzi che cambiano su prodotti esistenti NON si toccano qui: quelli passano da plan_prices. Serve la conferma dell'utente.",
+        parameters: z.object({
+          importId: z.string(),
+          channelSlug: z.string(),
+          mappings: z
+            .array(
+              z.object({
+                aggregator: z.string().describe("chiave del gruppo nel piano"),
+                productName: z.string().describe("nome del prodotto per il negozio"),
+                slug: z.string(),
+                productTypeId: z.string().describe("id da get_catalog_meta"),
+                categorySlug: z.string(),
+              }),
+            )
+            .min(1)
+            .describe("un mapping per ogni gruppo da creare; i gruppi senza mapping si saltano"),
+          confirm: z.literal(true),
+          target: TARGET,
+        }),
+        execute: safe(async ({ importId, channelSlug, mappings, target }) => {
+          // Ricalcoliamo il piano: tra il mostrare e il confermare il catalogo
+          // puo' essere cambiato, e un doppio apply non deve duplicare varianti.
+          const plan = await planDaneaImport(target, { importId, channelSlug });
+          return applyDaneaPlan(target, { channelSlug, groups: plan.groups, mappings });
         }),
       }),
       plan_prices: tool({
