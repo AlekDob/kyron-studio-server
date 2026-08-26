@@ -103,7 +103,28 @@ export async function ensureChannel(
     `query { channels { id slug } }`,
   );
   const existing = list.channels.find((c) => c.slug === slug);
-  if (existing) return { id: existing.id, created: false };
+  if (existing) {
+    // Brain: gotcha-carta-docente-channel-missing-allow-unpaid-orphan — i channel
+    // creati prima del fix (o a mano da Dashboard) hanno allowUnpaidOrders=false e
+    // il bonifico si rompe. Ri-settiamo il flag a ogni enable: idempotente, ripara
+    // il portale senza backfill manuale su prod.
+    const updated = await adminRequest<{
+      channelUpdate: { errors: Array<{ field: string | null; message: string }> };
+    }>(
+      target,
+      `mutation ($id: ID!, $input: ChannelUpdateInput!) {
+        channelUpdate(id: $id, input: $input) { errors { field message } }
+      }`,
+      {
+        id: existing.id,
+        input: {
+          orderSettings: { allowUnpaidOrders: true, automaticallyConfirmAllNewOrders: true },
+        },
+      },
+    );
+    checkErrors(updated.channelUpdate.errors, "channelUpdate orderSettings");
+    return { id: existing.id, created: false };
+  }
   const created = await adminRequest<{
     channelCreate: {
       channel: { id: string } | null;
