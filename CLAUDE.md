@@ -88,6 +88,8 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /agents/data-editor               → SSE agent Editor Dati (X-Tenant + kyron-rev) — feature 002
 /agents/review-editor             → SSE agent Review Editor (X-Tenant + kyron-rev) — feature 003
 /agents/stats                     → SSE agent Statistiche (Ada): HogQL sola lettura su PostHog (studio feature 017)
+/agents/commesso                  → SSE agent Commesso (Kevin): catalogo prodotti + prezzi Saleor prod, ADMIN-ONLY (studio feature 018)
+/api/v1/products                  → lista/dettaglio prodotti + POST /import/upload (file Danea) — feature 018
 /settings                         → AI provider config + model routing (ADMIN-ONLY, feature 008)
 /api/v1/collections               → BFF gateway Payload (X-Tenant + kyron-rev cookie) — feature 001
 /api/v1/collections/:slug         → list records
@@ -141,6 +143,8 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `ORDERS_REPORT_TO` | CSV destinatari report ordini (default come analytics) |
 | `ORDERS_REPORT_EXCLUDE_EMAILS` | CSV email escluse dal report ordini (smoke test checkout) |
 | `KYRON_SHOP_BASE_URL` | base URL storefront per il link portale nel modulo Ordini (default `https://kyronedu.it/shop`, feature 008) |
+| `META_ACCESS_TOKEN` | token Meta Marketing API (lettura insights campagne, agente Ada) |
+| `META_AD_ACCOUNT_ID` | id account pubblicitario Meta, con o senza prefisso `act_` |
 | `ORDERS_SHIP_NOTIFY_ALLOW` | CSV allowlist destinatari mail "spedito": se valorizzata invia SOLO a quegli indirizzi (test), se vuota invia a tutti (go-live). PROD ora = `gmail@alekdob.com` |
 
 ## Knowledge base
@@ -149,7 +153,8 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - `documentation/features/002-data-editor-agent.md` — agente AI multi-tool
 - `documentation/features/003-review-editor-agent.md` — agente AI Review Editor (workstream 03)
 - `documentation/features/005-analytics-gateway.md` — gateway PostHog HogQL (range calendario, confronti, geo/fonti/pagine/device, report email 09:00) — decision-017
-- Agente Statistiche (Ada), `src/features/stats-agent/`: tool `overview`/`run_hogql`/`list_portals`, guard `assertReadOnly` + budget 40 query/ora sulla Query API PostHog. Doc unica in `../studio/documentation/features/017-stats-agent.md`
+- Agente Statistiche (Ada), `src/features/stats-agent/`: tool `overview`/`run_hogql`/`list_portals`, guard `assertReadOnly` + budget 60 query/ora sulla Query API PostHog (+ tool Meta Ads, marketing). Doc unica in `../studio/documentation/features/017-stats-agent.md`
+- Agente Commesso (Kevin), `src/features/commesso/`: letture catalogo admin API, scritture prodotto/variante/giacenza, piano prezzi in due passaggi con guardia kit (R1) e drift detection, import listino Danea. Doc unica in `../studio/documentation/features/018-commesso-module.md`
 - `documentation/features/007-orders-report.md` — report email ordini giornaliero 09:30 (Saleor prod, per portale, SKU+descrizione, esclude test) — riusa core/email + core/scheduler
 - `documentation/features/008-orders-api.md` — `GET /api/v1/orders` lista ordini Saleor (range date) arricchiti con agente/cod. meccanografico/link portale (join channelSlug==slug) — backend del modulo Ordini Studio (feature 010)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
@@ -166,6 +171,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - **Ordini Saleor: Stripe = `pi_` (non `pm_`), dati fiscali in `billingAddress.metadata`**: `documentation/gotchas/gotcha-saleor-order-stripe-pi-and-fiscal-metadata.md` (feature 008).
 - **Doppio PaymentIntent: un ordine puo' avere piu' transazioni Stripe (il primo PI resta orfano "Incomplete"). `pickStripeRef()` in `core/saleor/orders.ts` sceglie la transazione con `chargedAmount > 0`, non la prima — altrimenti il link "Apri su Stripe" punta al PI orfano e l'ordine sembra non pagato**: `../documentation/gotchas/gotcha-stripe-duplicate-payment-intent-orphan.md` (umbrella).
 - **Kit portali: productSlug/SKU validati contro Saleor SOLO al publish (storico)**: i tool agente bundle ora validano all'edit (`validateComponentsAgainstSaleor`), ma attenzione agli slug derivati dal nome e al codice articolo ≠ nome prodotto (es. `MX2D3ZM/A` = Pencil Pro, non USB-C). Vedi `documentation/gotchas/gotcha-portal-kit-slug-mismatch.md`.
+- **Prezzi Kevin: mai in un turno solo.** `plan_prices` calcola, `apply_price_plan` ricalcola + rilegge e aborta tutto se un prezzo si e' mosso. Componente di kit senza nuovo voucher = piano rifiutato (il voucher e' un importo fisso in euro: ~734 EUR persi su 25 ordini quando e' rimasto fermo). Canale sempre esplicito, mai "il prezzo del prodotto". Vedi feature 018.
 - **Editing riga ordine Saleor: solo DRAFT/UNCONFIRMED, mutation è `orderLinesCreate` (non `orderLinesAdd`), add-prima-di-delete sul cambio variante**: ogni edit rompe il totale scontato (voucher bundle + sconto manuale) → serve re-adjust misura-e-correggi senza mai rimuovere il voucher (auto-conferma l'ordine). Vedi `documentation/gotchas/gotcha-saleor-order-line-edit-unconfirmed-only.md` (feature 008, decision-019).
 
 ## File chiave

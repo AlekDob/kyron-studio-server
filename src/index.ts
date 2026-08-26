@@ -18,6 +18,8 @@ import { ordersReportRoute } from "@/features/orders-report/route.js";
 import { armDailyOrdersReport } from "@/features/orders-report/report.js";
 import { ordersRoute } from "@/features/orders/route.js";
 import { priceGuardRoute } from "@/features/price-guard/route.js";
+import { commessoRoute } from "@/features/commesso/route.js";
+import { commessoRestRoute } from "@/features/commesso/rest.js";
 import { priceGuardAgentRoute } from "@/features/price-guard/agent-route.js";
 import { statsAgentRoute } from "@/features/stats-agent/route.js";
 import { armDailyPriceGuard } from "@/features/price-guard/report.js";
@@ -72,6 +74,8 @@ app.route("/api/v1/orders-report", ordersReportRoute);
 app.route("/api/v1/orders", ordersRoute);
 app.route("/api/v1/price-guard", priceGuardRoute);
 app.route("/api/v1/vat-relief", vatReliefRoute);
+app.route("/agents/commesso", commessoRoute);
+app.route("/api/v1/products", commessoRestRoute);
 
 // Report analytics giornaliero via email (opt-in: ANALYTICS_REPORT_ENABLED).
 armDailyReport();

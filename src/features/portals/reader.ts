@@ -192,6 +192,20 @@ export async function listPortals(): Promise<PortalSummary[]> {
   return res.data.map(toSummary);
 }
 
+// Tutti i portali in forma completa, con una sola chiamata a Payload. Serve al
+// modulo Commesso per sapere se un prodotto e' componente di qualche kit prima
+// di lasciar toccare il prezzo (R1: il voucher del kit e' un importo fisso e
+// non si muove da solo).
+export async function listPortalDetails(): Promise<PortalDetail[]> {
+  const gw = getPortalsGateway();
+  const res = await gw.list(PORTALS_COLLECTION, {
+    limit: 200,
+    sort: "-updatedAt",
+    depth: 1,
+  });
+  return res.data.map(toDetail);
+}
+
 export async function getPortal(slug: string): Promise<PortalDetail | null> {
   const doc = await findPortalDoc(slug);
   return doc ? toDetail(doc) : null;
