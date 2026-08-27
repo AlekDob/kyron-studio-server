@@ -29,7 +29,17 @@ const RANGES = [
   "90d",
 ] as const;
 
-const VIEWS = ["table", "bars", "line"] as const;
+// Tipi di grafico della ChartCard condivisa (@studiofuturo/studio-core).
+// Il descriptor e' 4 righe: non vale aggiungere qui la dipendenza dal core, che
+// costerebbe l'auth GitHub Packages nella build Docker di questo server.
+const CHART_KINDS = ["table", "bars", "columns", "timeline", "pie"] as const;
+
+const chartDescriptor = (props: {
+  title: string;
+  kind: (typeof CHART_KINDS)[number];
+  columns: string[];
+  rows: unknown[][];
+}) => ({ component: "Chart", props, id: `chart_${Date.now()}` });
 
 // I tool non devono lanciare: un errore leggibile torna nel result, cosi' Ada
 // lo spiega all'utente invece di far cadere lo stream.
@@ -67,13 +77,15 @@ export async function* runStatsAgent(opts: AgentRunOptions) {
       }),
       run_hogql: tool({
         description:
-          "Esegue una query HogQL di sola lettura su PostHog e la mostra all'utente come tabella, classifica a barre o grafico a linea. Budget 60 query/ora: aggrega con GROUP BY invece di fare tante chiamate.",
+          "Esegue una query HogQL di sola lettura su PostHog e la mostra all'utente come grafico piu' tabella. Budget 60 query/ora: aggrega con GROUP BY invece di fare tante chiamate.",
         parameters: z.object({
           query: z.string().describe("la query HogQL, una sola SELECT/WITH"),
           title: z.string().describe("titolo breve in italiano del risultato"),
           view: z
-            .enum(VIEWS)
-            .describe("line per serie nel tempo, bars per classifiche, table per il resto"),
+            .enum(CHART_KINDS)
+            .describe(
+              "timeline per una serie nel tempo, columns per pochi valori da confrontare, bars per una classifica con etichette lunghe, pie solo per parti di un totale (max 6 fette), table per il resto",
+            ),
         }),
         execute: async ({ query, title, view }) => {
           let safe: string;
@@ -90,16 +102,28 @@ export async function* runStatsAgent(opts: AgentRunOptions) {
               columns,
               rows,
               rowCount: rows.length,
-              _ui: {
-                component: "StatsResult",
-                props: { title, columns, rows, view },
-                id: `stats_${Date.now()}`,
-              },
+              _ui: chartDescriptor({ title, kind: view, columns, rows }),
             };
           } catch (err) {
             return { error: readableError(err) };
           }
         },
+      }),
+      render_chart: tool({
+        description:
+          "Mostra all'utente come grafico piu' tabella dei dati che hai GIA' in mano (da overview o dai tool Meta), senza rifare una query. La prima colonna e' l'etichetta, ogni colonna numerica successiva e' una serie: due colonne di misura diventano due serie a confronto.",
+        parameters: z.object({
+          title: z.string().describe("titolo breve in italiano del grafico"),
+          kind: z.enum(CHART_KINDS),
+          columns: z.array(z.string()).describe("nomi delle colonne, la prima e' l'etichetta"),
+          rows: z
+            .array(z.array(z.unknown()))
+            .describe("le righe, nello stesso ordine delle colonne"),
+        }),
+        execute: async ({ title, kind, columns, rows }) => ({
+          rowCount: rows.length,
+          _ui: chartDescriptor({ title, kind, columns, rows }),
+        }),
       }),
       get_meta_campaigns: tool({
         description:
