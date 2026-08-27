@@ -112,7 +112,7 @@ interface Address {
   metadata: Array<{ key: string; value: string }> | null;
 }
 
-interface OrderNode {
+export interface OrderNode {
   id: string;
   number: string;
   created: string;
@@ -218,6 +218,27 @@ function orderMeta(n: OrderNode, key: string): string {
   return n.metadata?.find((m) => m.key === key)?.value ?? "";
 }
 
+// Metodo di pagamento offline dell'ordine. Di norma sta nel metadata pubblico
+// `paymentMethod`, scritto dallo storefront. Quel metadata si e' perso su alcuni
+// ordini reali (es. 495: race fra updateMetadata e deleteMetadata sul checkout)
+// e senza di esso Studio non mostrava la sezione Carta del Docente / Bonifico,
+// quindi il team non poteva riscattare il buono ne' segnare il bonifico.
+// Qui lo deduciamo quando manca, cosi' un metadata perso non blocca l'operatore:
+//  - canale "carta-docente" o presenza di chiavi teacherCard* -> teacher-card
+//  - ordine mai addebitato e senza transazione Stripe -> pagamento offline,
+//    che senza tracce di carta docente puo' essere solo un bonifico.
+export function derivePaymentMethod(n: OrderNode): string {
+  const declared = orderMeta(n, "paymentMethod");
+  if (declared) return declared;
+  const teacherCardHints =
+    n.channel?.slug === "carta-docente" ||
+    Boolean(orderMeta(n, "teacherCardAmount")) ||
+    Boolean(orderMeta(n, "teacherCardVoucherCode"));
+  if (teacherCardHints) return "teacher-card";
+  if (n.paymentStatus === "NOT_CHARGED" && !pspReference(n)) return "bank-transfer";
+  return "";
+}
+
 function mapOrder(n: OrderNode): OrderSummary {
   return {
     id: n.id,
@@ -241,7 +262,7 @@ function mapOrder(n: OrderNode): OrderSummary {
     status: n.status ?? "",
     paymentStatus: n.paymentStatus ?? "",
     pspReference: pspReference(n),
-    paymentMethod: orderMeta(n, "paymentMethod"),
+    paymentMethod: derivePaymentMethod(n),
     teacherCardAmount: orderMeta(n, "teacherCardAmount")
       ? Number(orderMeta(n, "teacherCardAmount"))
       : null,
