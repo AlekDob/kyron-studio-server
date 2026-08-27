@@ -1,5 +1,6 @@
 import { findPortalDoc, getPortal, type PortalDetail } from "./reader.js";
 import { getPortalsGateway, PORTALS_COLLECTION } from "./gateway.js";
+import { resyncPortalVouchers } from "./enable/enable.js";
 
 // Brain: decision-016 — writer scrive in Payload via gateway REST.
 // Conservata la firma pubblica del vecchio writer filesystem. Le mutation
@@ -128,6 +129,9 @@ export async function addBundleToPortal(
 
   const gw = getPortalsGateway();
   await gw.update(PORTALS_COLLECTION, String(doc.id), { bundles: next });
+  // Il prezzo del kit vive su Payload, lo sconto reale sul voucher Saleor:
+  // senza risync il cliente paga il vecchio sconto (bug colombo 2026-08-27).
+  await resyncPortalVouchers(slug);
   return { ok: true, slug, bundleSlug: bundle.slug, total: next.length };
 }
 
@@ -216,6 +220,7 @@ export async function updateBundleInPortal(
 
   const gw = getPortalsGateway();
   await gw.update(PORTALS_COLLECTION, String(doc.id), { bundles: next });
+  await resyncPortalVouchers(slug);
   return { ok: true, slug, bundleSlug, updatedFields };
 }
 

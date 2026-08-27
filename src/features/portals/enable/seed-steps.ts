@@ -44,7 +44,11 @@ export async function fetchProduct(
   channel: string,
   cache: Map<string, ProductRef>,
 ): Promise<ProductRef | null> {
-  const cached = cache.get(slug);
+  // Cache per (channel, slug): lo stesso prodotto ha prezzi DIVERSI su
+  // default-channel e sul channel scuola. Chiave solo-slug = prezzi sbagliati
+  // (bug voucher kit colombo 2026-08-27).
+  const key = `${channel}:${slug}`;
+  const cached = cache.get(key);
   if (cached) return cached;
   const data = await adminRequest<{
     product: {
@@ -89,7 +93,7 @@ export async function fetchProduct(
         0,
     })),
   };
-  cache.set(slug, ref);
+  cache.set(key, ref);
   return ref;
 }
 
@@ -445,17 +449,21 @@ export async function listChannelProductSlugs(
   return data.products.edges.map((e) => e.node.slug);
 }
 
-// Somma listino dei componenti bundle su default-channel (prezzo corrente,
-// come il seed CLI: il saving del voucher parte dai prezzi vendita).
+// Somma i prezzi SCONTATI dei componenti sul CHANNEL SCUOLA: e' esattamente
+// quanto Saleor addebita al checkout prima del voucher. Usare default-channel
+// (come faceva prima) da' un voucher sbagliato ogni volta che i prezzi del
+// portale divergono dal listino base -> il cliente paga piu' del prezzo kit
+// mostrato (bug colombo/bettolo/carta-docente 2026-08-27).
 export async function resolveBundleSaving(
   target: SaleorTarget,
   bundle: BundleConfig,
   cache: Map<string, ProductRef>,
+  channelSlug: string,
 ): Promise<number> {
   let sum = 0;
   for (const comp of bundle.components) {
-    const product = await fetchProduct(target, comp.productSlug, "default-channel", cache);
-    if (!product) throw new Error(`Prodotto "${comp.productSlug}" non trovato`);
+    const product = await fetchProduct(target, comp.productSlug, channelSlug, cache);
+    if (!product) throw new Error(`Prodotto "${comp.productSlug}" non trovato su ${channelSlug}`);
     const sel = comp.selection;
     const variant =
       sel.kind === "by-attribute"
@@ -471,15 +479,20 @@ export async function resolveBundleSaving(
     if (!variant) {
       throw new Error(`Bundle ${bundle.slug}: nessuna variante per ${comp.productSlug}`);
     }
+    // priceAmount 0 = variante non pubblicata/senza listing sul channel: la
+    // somma sarebbe incompleta e il voucher troppo piccolo. Meglio fallire.
+    if (variant.priceAmount <= 0) {
+      throw new Error(
+        `Bundle ${bundle.slug}: ${comp.productSlug} (${variant.sku}) non ha prezzo sul channel ${channelSlug}`,
+      );
+    }
     sum += variant.priceAmount;
   }
   const saving = Math.round((sum - bundle.finalPriceEur) * 100) / 100;
   if (saving <= 0) {
     // Il voucher del kit sconta (somma componenti - prezzo kit): deve essere > 0.
-    // Messaggio esplicito su ambiente + verso giusto (la causa tipica e' un
-    // listino componenti non allineato sul target, es. staging non bumpato).
     throw new Error(
-      `Bundle "${bundle.slug}" su ${target}: il prezzo del kit (${bundle.finalPriceEur} EUR) e' maggiore o uguale alla somma dei componenti a listino (${sum} EUR), quindi lo sconto del voucher sarebbe ${saving} EUR (deve essere positivo). Controlla che i prezzi dei componenti su ${target} siano aggiornati, oppure abbassa il prezzo del kit.`,
+      `Bundle "${bundle.slug}" su ${target}/${channelSlug}: il prezzo del kit (${bundle.finalPriceEur} EUR) e' maggiore o uguale alla somma dei componenti scontati (${sum} EUR), quindi lo sconto del voucher sarebbe ${saving} EUR (deve essere positivo). Controlla i prezzi dei componenti sul channel, oppure alza il prezzo del kit.`,
     );
   }
   return saving;

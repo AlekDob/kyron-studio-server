@@ -109,6 +109,19 @@ export function buildPubPlans(config: EnablePortalConfig): Map<string, PubPlan> 
   return plans;
 }
 
+function emptyReport(target: SaleorTarget): TargetReport {
+  return {
+    target,
+    channelId: "",
+    channelCreated: false,
+    productsPublished: 0,
+    promotionsApplied: 0,
+    vouchers: {},
+    promotionsOnSale: null,
+    steps: [],
+  };
+}
+
 async function applyVisibilityAndPricing(
   target: SaleorTarget,
   channelId: string,
@@ -230,7 +243,7 @@ async function applyVouchers(
   report: TargetReport,
 ): Promise<void> {
   for (const bundle of config.bundles) {
-    const saving = await resolveBundleSaving(target, bundle, cache);
+    const saving = await resolveBundleSaving(target, bundle, cache, config.slug);
     const code = voucherCodeFor(config.slug, bundle.slug);
     const id = await ensureVoucher(target, {
       channelId,
@@ -278,16 +291,7 @@ async function enableOnTarget(
   config: EnablePortalConfig,
   target: SaleorTarget,
 ): Promise<TargetReport> {
-  const report: TargetReport = {
-    target,
-    channelId: "",
-    channelCreated: false,
-    productsPublished: 0,
-    promotionsApplied: 0,
-    vouchers: {},
-    promotionsOnSale: null,
-    steps: [],
-  };
+  const report = emptyReport(target);
   const cache = new Map<string, ProductRef>();
   const channel = await ensureChannel(target, config.slug, config.nome);
   report.channelId = channel.id;
@@ -295,11 +299,51 @@ async function enableOnTarget(
   await ensureShipping(target, channel.id, config.shippingMethodLabel, config.shippingPriceEur);
   await applyVisibilityAndPricing(target, channel.id, config, cache, report);
   await applyDiscounts(target, channel.id, config, cache, report);
-  await applyVouchers(target, channel.id, config, cache, report);
+  // ORDINE CRITICO: il voucher del kit si calcola sui prezzi SCONTATI del
+  // channel, quindi le Promotion devono essere gia' attive. Se il beat Saleor
+  // non le ha applicate, meglio fallire che scrivere un voucher sbagliato
+  // (cliente che paga piu' del prezzo mostrato).
   if (config.catalog.productDiscounts.length > 0) {
     report.promotionsOnSale = await pollPromotionsOnSale(target, config.slug, config);
+    if (!report.promotionsOnSale) {
+      throw new Error(
+        `Le promozioni su ${target}/${config.slug} non risultano ancora attive: voucher kit non scritti (sarebbero sbagliati). Lancia il recalc Saleor e ri-esegui il seed.`,
+      );
+    }
   }
+  await applyVouchers(target, channel.id, config, cache, report);
   return report;
+}
+
+// Risync dei soli voucher kit su un portale gia' onboarded. Serve dopo una
+// MODIFICA di un kit (prezzo mostrato o componenti): il prezzo mostrato viene
+// da Payload, quello addebitato dal voucher su Saleor, e solo il seed li
+// allineava — 17 giorni di clienti che pagavano il vecchio sconto
+// (colombo kit iPad, 2026-08-27). Non tocca visibilita' ne' promozioni.
+export async function resyncPortalVouchers(
+  slug: string,
+  targets: SaleorTarget[] = ["staging", "prod"],
+): Promise<{ synced: boolean; steps: string[] }> {
+  const portal = await getPortal(slug);
+  if (!portal) throw new Error(`Portale "${slug}" non trovato`);
+  if (portal.status !== "onboarded") return { synced: false, steps: [] };
+  const config = toEnableConfig(portal);
+  const steps: string[] = [];
+  for (const target of targets) {
+    try {
+      const report = emptyReport(target);
+      const channel = await ensureChannel(target, config.slug, config.nome);
+      await applyVouchers(target, channel.id, config, new Map(), report);
+      steps.push(...report.steps.map((x) => `${target}: ${x}`));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      // Su PROD un voucher non allineato = cliente che paga il prezzo sbagliato:
+      // l'errore risale a chi ha salvato la modifica.
+      if (target === "prod") throw new Error(`Voucher kit NON aggiornati su prod: ${error}`);
+      console.warn(`[resync-vouchers] ${target} fallito (non bloccante): ${error}`);
+    }
+  }
+  return { synced: true, steps };
 }
 
 async function markOnboarded(
