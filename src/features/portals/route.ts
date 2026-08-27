@@ -9,9 +9,11 @@ import {
   duplicatePortal,
   savePortalLogo,
   updatePortalCatalog,
+  patchPortalCatalog,
   updateBundleInPortal,
   removeBundleFromPortal,
 } from "./writer.js";
+import type { CatalogPatch } from "./writer.js";
 import { enablePortal } from "./enable/enable.js";
 import { notifyPortalLive } from "./enable/notify.js";
 
@@ -111,11 +113,22 @@ portalsRoute.delete("/:slug", async (c) => {
 
 portalsRoute.put("/:slug/catalog", async (c) => {
   try {
-    const body = (await c.req.json()) as { visibleSlugs: string[] };
-    if (!Array.isArray(body.visibleSlugs)) {
+    // Due chiavi indipendenti: la lista prodotti e gli sconti per prodotto.
+    // Il pannello Studio manda una sola delle due per volta.
+    const body = (await c.req.json()) as Partial<CatalogPatch>;
+    if (body.visibleSlugs === undefined && body.productDiscounts === undefined) {
+      return c.json({ error: "visibleSlugs or productDiscounts required" }, 400);
+    }
+    if (body.visibleSlugs !== undefined && !Array.isArray(body.visibleSlugs)) {
       return c.json({ error: "visibleSlugs must be an array" }, 400);
     }
-    const result = await updatePortalCatalog(c.req.param("slug"), body.visibleSlugs);
+    if (body.productDiscounts !== undefined && !Array.isArray(body.productDiscounts)) {
+      return c.json({ error: "productDiscounts must be an array" }, 400);
+    }
+    const slug = c.req.param("slug");
+    const result = body.productDiscounts
+      ? await patchPortalCatalog(slug, { productDiscounts: body.productDiscounts })
+      : await updatePortalCatalog(slug, body.visibleSlugs ?? []);
     return c.json(result);
   } catch (err) {
     const { status, body } = errorResponse(err);
