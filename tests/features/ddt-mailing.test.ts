@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { allowlistFromEnv, passesAllowlist } from "@/core/email/bulk.js";
 import { logKey } from "@/features/orders/email-log.js";
-import { sendDdtMailing } from "@/features/orders/ddt-mailing.js";
+import { sendDdtMailing, sendDdtTestMail } from "@/features/orders/ddt-mailing.js";
 
 afterEach(() => {
   delete process.env.DDT_MAIL_ALLOW;
@@ -39,5 +39,22 @@ describe("guardie invio comunicazioni", () => {
   it("la chiave di idempotenza include la campagna", () => {
     expect(logKey("ritardi-agosto", "/EC-1-2026-08-05")).toBe("ritardi-agosto:/EC-1-2026-08-05");
     expect(logKey("a", "k")).not.toBe(logKey("b", "k"));
+  });
+
+  // La prova salta DDT_MAIL_ENABLED e l'allowlist: l'indirizzo e' il solo
+  // confine rimasto, quindi deve reggere. Un indirizzo per chiamata.
+  it("la mail di prova rifiuta un destinatario non valido", async () => {
+    const bad = ["", "  ", "non-una-mail", "a@b.it, c@d.it"];
+    for (const to of bad) {
+      await expect(
+        sendDdtTestMail({
+          importId: "dan_x",
+          campaignId: "test",
+          campaign: { subject: "s", heading: "h", paragraphs: ["p"] },
+          previewIndex: 0,
+          to,
+        }),
+      ).rejects.toThrow(/non valido/);
+    }
   });
 });

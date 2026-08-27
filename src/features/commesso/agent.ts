@@ -71,7 +71,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
     maxSteps: 10,
     tools: {
       ...orderTools,
-      ...ddtTools,
+      ...ddtTools(opts.userEmail),
       list_products: tool({
         description:
           "Cerca prodotti nel catalogo Saleor (anche non pubblicati) per nome, slug o SKU. Torna varianti, giacenze e prezzi per canale.",

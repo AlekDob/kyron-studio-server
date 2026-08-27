@@ -16,6 +16,7 @@ import type { DaneaDocument } from "@/features/commesso/danea-ddt.js";
 import { matchDocuments, rangeForDocuments } from "./ddt-match.js";
 import { claimSend, listSent, markFailed } from "./email-log.js";
 import { campaignPlainText, renderDdtEmail, type DdtCampaign } from "./ddt-mail-template.js";
+import { sendKyronEmail } from "@/core/email/mailer.js";
 
 export const BATCH_SIZE = 50;
 const ALLOW_ENV = "DDT_MAIL_ALLOW";
@@ -119,6 +120,33 @@ export async function planDdtMailing(args: {
       html: renderDdtEmail(byKey.get(r.docKey) as DaneaDocument, args.campaign),
     })),
   };
+}
+
+// Invio di PROVA: una mail sola, all'indirizzo che l'operatore scrive nella card.
+// Serve proprio quando l'invio di massa e' ancora spento, quindi NON passa da
+// DDT_MAIL_ENABLED ne' dall'allowlist. Non tocca email_log e non scrive niente
+// sull'ordine: la prova non deve consumare il claim anti-doppio-invio.
+//
+// L'HTML lo ri-renderizza il server: dal client arriva solo il testo, mai markup.
+const ONE_EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+
+export async function sendDdtTestMail(args: {
+  importId: string;
+  campaignId: string;
+  campaign: DdtCampaign;
+  previewIndex: number;
+  to: string;
+}): Promise<{ to: string; docKey: string }> {
+  const to = args.to.trim();
+  if (!ONE_EMAIL.test(to)) {
+    throw new Error("Indirizzo di prova non valido: serve un solo indirizzo email.");
+  }
+  const plan = await planDdtMailing(args);
+  const i = Math.min(Math.max(args.previewIndex, 0), plan.previews.length - 1);
+  const preview = plan.previews[i];
+  if (!preview) throw new Error("Nessun destinatario da usare per l'anteprima.");
+  await sendKyronEmail(`[PROVA] ${args.campaign.subject}`, preview.html, [to]);
+  return { to, docKey: plan.recipients[i]?.docKey ?? "" };
 }
 
 export interface DdtSendResult {

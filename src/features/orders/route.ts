@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
+import { requireAdmin } from "@/middleware/require-admin.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { fetchOrdersForRange } from "@/core/saleor/orders.js";
 import { listForOrder } from "./email-log.js";
+import { sendDdtTestMail } from "./ddt-mailing.js";
 import {
   buildPortalIndex,
   enrichOrder,
@@ -273,6 +275,39 @@ ordersRoute.get("/comms", async (c) => {
     return c.json({ comms: await listForOrder(number) });
   } catch (err) {
     return c.json({ error: "comms_failed", detail: String(err) }, 502);
+  }
+});
+
+// POST /api/v1/orders/ddt-test-mail — manda UNA mail di prova con la
+// comunicazione DDT che l'operatore sta guardando nella card. Admin-only:
+// tutte le altre rotte di questo file sono in lettura, questa invia davvero.
+const testMailSchema = z.object({
+  importId: z.string().min(1),
+  campaignId: z.string().min(1),
+  subject: z.string().min(1),
+  heading: z.string().min(1),
+  paragraphs: z.array(z.string()).min(1),
+  previewIndex: z.number().int().min(0).default(0),
+  to: z.string().min(3),
+});
+
+ordersRoute.post("/ddt-test-mail", requireAdmin, async (c) => {
+  const parsed = testMailSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_body" }, 400);
+  const { importId, campaignId, subject, heading, paragraphs, previewIndex, to } = parsed.data;
+  try {
+    const res = await sendDdtTestMail({
+      importId,
+      campaignId,
+      campaign: { subject, heading, paragraphs },
+      previewIndex,
+      to,
+    });
+    // Chi ha mandato cosa a chi: una prova resta pur sempre una mail vera.
+    console.log(`[ddt-test-mail] ${c.get("studioUser").email} -> ${res.to} (${res.docKey})`);
+    return c.json({ ok: true, ...res });
+  } catch (err) {
+    return c.json({ error: "test_mail_failed", detail: String(err) }, 502);
   }
 });
 
