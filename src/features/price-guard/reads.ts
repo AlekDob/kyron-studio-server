@@ -57,7 +57,7 @@ export async function readVoucherDiscount(
     vouchers: {
       edges: Array<{
         node: {
-          code: string;
+          codes: { edges: Array<{ node: { code: string } }> } | null;
           channelListings: Array<{
             channel: { slug: string };
             discountValue: number;
@@ -67,14 +67,22 @@ export async function readVoucherDiscount(
     };
   }>(
     target,
+    // I voucher Saleor sono MULTI-CODICE: il campo scalare `code` e' deprecato
+    // e non torna il codice cercato -> confrontarlo dava "voucher assente" su
+    // voucher esistenti (20 falsi positivi, 2026-08-27). Si matcha su `codes`.
     `query ($code: String!) {
       vouchers(first: 5, filter: { search: $code }) {
-        edges { node { code channelListings { channel { slug } discountValue } } }
+        edges { node {
+          codes(first: 20) { edges { node { code } } }
+          channelListings { channel { slug } discountValue }
+        } }
       }
     }`,
     { code },
   );
-  const node = data.vouchers.edges.find((e) => e.node.code === code)?.node;
+  const node = data.vouchers.edges.find((e) =>
+    (e.node.codes?.edges ?? []).some((c) => c.node.code === code),
+  )?.node;
   if (!node) return null;
   const listing = node.channelListings.find((l) => l.channel.slug === channel);
   return listing ? listing.discountValue : null;
