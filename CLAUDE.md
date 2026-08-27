@@ -106,6 +106,7 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /api/v1/orders/note (PATCH)       → nota operatore ordine (kyron_note), riportata nell'export Danea — feature 008
 /api/v1/orders/vat-override (PATCH) → override IVA ordine (kyron_vat_override), annotazione per Danea — feature 008
 /api/v1/orders/edit (GET) + /api/v1/orders/line (POST) → editing reale righe (qty/colore) SOLO ordini UNCONFIRMED, money-path — feature 008
+/api/v1/orders/comms (GET)        → comunicazioni gia' inviate al cliente di un ordine (registro email-log) — feature 019
 /api/v1/orders/line-color (POST) → cambio colore come ANNOTAZIONE su ordini confermati non spediti (metadata kyron_line_colors, decision-019); no money-path, visibile Studio + area cliente + Danea
 ```
 
@@ -145,6 +146,8 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `KYRON_SHOP_BASE_URL` | base URL storefront per il link portale nel modulo Ordini (default `https://kyronedu.it/shop`, feature 008) |
 | `META_ACCESS_TOKEN` | token Meta Marketing API (lettura insights campagne, agente Ada) |
 | `META_AD_ACCOUNT_ID` | id account pubblicitario Meta, con o senza prefisso `act_` |
+| `DDT_MAIL_ENABLED` | `true` arma l'invio delle comunicazioni ai clienti dai DDT Danea. Senza, `send_ddt_mailing` rifiuta (feature 019) |
+| `DDT_MAIL_ALLOW` | CSV allowlist destinatari comunicazioni DDT: piena = solo quegli indirizzi, vuota = tutti |
 | `ORDERS_SHIP_NOTIFY_ALLOW` | CSV allowlist destinatari mail "spedito": se valorizzata invia SOLO a quegli indirizzi (test), se vuota invia a tutti (go-live). PROD ora = `gmail@alekdob.com` |
 
 ## Knowledge base
@@ -156,6 +159,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - Agente Statistiche (Ada), `src/features/stats-agent/`: tool `overview`/`run_hogql`/`list_portals`, guard `assertReadOnly` + budget 60 query/ora sulla Query API PostHog (+ tool Meta Ads, marketing). Doc unica in `../studio/documentation/features/017-stats-agent.md`
 - Agente Commesso (Kevin), `src/features/commesso/`: letture catalogo admin API, scritture prodotto/variante/giacenza, piano prezzi in due passaggi con guardia kit (R1) e drift detection, import listino Danea. Doc unica in `../studio/documentation/features/018-commesso-module.md`
 - `documentation/features/007-orders-report.md` — report email ordini giornaliero 09:30 (Saleor prod, per portale, SKU+descrizione, esclude test) — riusa core/email + core/scheduler
+- Comunicazioni DDT + ordini dentro Nico, `src/features/commesso/{order-tools,ddt-tools}.ts` + `src/features/orders/{ddt-match,ddt-mailing,ddt-mail-template,email-log}.ts`. Doc unica in `../studio/documentation/features/019-ddt-comms.md`
 - `documentation/features/008-orders-api.md` — `GET /api/v1/orders` lista ordini Saleor (range date) arricchiti con agente/cod. meccanografico/link portale (join channelSlug==slug) — backend del modulo Ordini Studio (feature 010)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`
@@ -173,6 +177,9 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - **Kit portali: productSlug/SKU validati contro Saleor SOLO al publish (storico)**: i tool agente bundle ora validano all'edit (`validateComponentsAgainstSaleor`), ma attenzione agli slug derivati dal nome e al codice articolo ≠ nome prodotto (es. `MX2D3ZM/A` = Pencil Pro, non USB-C). Vedi `documentation/gotchas/gotcha-portal-kit-slug-mismatch.md`.
 - **Prezzi Kevin: mai in un turno solo.** `plan_prices` calcola, `apply_price_plan` ricalcola + rilegge e aborta tutto se un prezzo si e' mosso. Componente di kit senza nuovo voucher = piano rifiutato (il voucher e' un importo fisso in euro: ~734 EUR persi su 25 ordini quando e' rimasto fermo). Canale sempre esplicito, mai "il prezzo del prodotto". Vedi feature 018.
 - **Editing riga ordine Saleor: solo DRAFT/UNCONFIRMED, mutation è `orderLinesCreate` (non `orderLinesAdd`), add-prima-di-delete sul cambio variante**: ogni edit rompe il totale scontato (voucher bundle + sconto manuale) → serve re-adjust misura-e-correggi senza mai rimuovere il voucher (auto-conferma l'ordine). Vedi `documentation/gotchas/gotcha-saleor-order-line-edit-unconfirmed-only.md` (feature 008, decision-019).
+
+- **Invio di massa: il claim viene PRIMA della mail.** `email-log` su Payload ha `key` `unique: true`: il `create` e' il lock. Se Payload e' irraggiungibile il lotto si ferma, non si manda senza registro. E il marcatore `kyron_ship_notified_at` si scrive solo dopo un invio riuscito: scriverlo anche quando l'allowlist blocca silenzierebbe quel cliente per sempre. Vedi feature 019.
+- **`getTag()` di `danea-parse.ts` vuole il prefisso ancorato**: `<Total>` non deve agganciare `<TotalWithoutTax>` (nei DDT viene prima). Test di regressione in `tests/features/commesso-danea.test.ts`.
 
 ## File chiave
 

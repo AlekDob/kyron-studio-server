@@ -1,7 +1,7 @@
 // Stato lavorazione interno Kyron di un ordine (workflow commerciali) + notifica
 // "spedito" al cliente. Lo stato vive in order.metadata `kyron_status` su Saleor:
 // NON usa la fulfillment nativa (che manderebbe email Saleor) — qui controlliamo noi.
-import { setOrderMeta, fetchOrderHeader } from "@/core/saleor/orders.js";
+import { setOrderMeta, fetchOrderMeta, fetchOrderHeader } from "@/core/saleor/orders.js";
 import { sendKyronEmail } from "@/core/email/mailer.js";
 
 export const WORKFLOW_STATUSES = [
@@ -23,12 +23,19 @@ export function isWorkflowStatus(v: string): v is WorkflowStatus {
 export async function setWorkflowStatus(
   orderId: string,
   status: WorkflowStatus,
-): Promise<{ status: WorkflowStatus; emailed: boolean }> {
+): Promise<{ status: WorkflowStatus; emailed: boolean; alreadyNotified: boolean }> {
   await setOrderMeta(orderId, "kyron_status", status);
   let emailed = false;
-  if (status === "spedito") emailed = await sendShipNotification(orderId);
-  return { status, emailed };
+  let alreadyNotified = false;
+  if (status === "spedito") {
+    alreadyNotified = Boolean(await fetchOrderMeta(orderId, SHIP_NOTIFIED_KEY));
+    if (!alreadyNotified) emailed = await sendShipNotification(orderId);
+  }
+  return { status, emailed, alreadyNotified };
 }
+
+// Marcatore anti-doppio-invio della mail "spedito" (metadata ordine Saleor).
+const SHIP_NOTIFIED_KEY = "kyron_ship_notified_at";
 
 // Allowlist destinatari notifica spedizione. Se valorizzata (CSV), invia SOLO a
 // quegli indirizzi (modalita' test). Se vuota/non settata, invia a tutti (go-live).
@@ -55,6 +62,10 @@ export async function sendShipNotification(orderId: string): Promise<boolean> {
     renderShipEmail(number, channelName),
     [userEmail],
   );
+  // Il marcatore si scrive SOLO dopo un invio riuscito. Se lo scrivessimo anche
+  // sul ramo "bloccato dall'allowlist", quel cliente non riceverebbe mai la
+  // mail il giorno in cui l'allowlist viene svuotata.
+  await setOrderMeta(orderId, SHIP_NOTIFIED_KEY, new Date().toISOString());
   return true;
 }
 

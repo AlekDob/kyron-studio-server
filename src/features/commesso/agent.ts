@@ -7,6 +7,9 @@ import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { COMMESSO_SYSTEM_PROMPT } from "./prompt.js";
+import { safe } from "./tool-safe.js";
+import { orderTools } from "./order-tools.js";
+import { ddtTools } from "./ddt-tools.js";
 import { getCatalogMeta, getProduct, listProducts } from "./reads.js";
 import { planPrices } from "./plan-service.js";
 import { planDaneaImport } from "./danea-service.js";
@@ -35,22 +38,6 @@ const TARGET = z
   .enum(["prod", "staging"])
   .default("prod")
   .describe("Saleor su cui operare; prod se non specificato");
-
-function readable(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-// Ogni tool ha la stessa forma: prova, e se va male torna {error}. Il wrapper
-// evita di ripetere try/catch dieci volte.
-function safe<A, R>(fn: (args: A) => Promise<R>) {
-  return async (args: A): Promise<R | { error: string }> => {
-    try {
-      return await fn(args);
-    } catch (err) {
-      return { error: readable(err) };
-    }
-  };
-}
 
 // Il result completo va al client (il pannello ci prende le thumbnail), ma al
 // modello serve solo il testo: senza imageUrl non puo' incollare foto in chat,
@@ -83,6 +70,8 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
     messages: opts.messages,
     maxSteps: 10,
     tools: {
+      ...orderTools,
+      ...ddtTools,
       list_products: tool({
         description:
           "Cerca prodotti nel catalogo Saleor (anche non pubblicati) per nome, slug o SKU. Torna varianti, giacenze e prezzi per canale.",
@@ -220,7 +209,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
       }),
       render_danea_uploader: tool({
         description:
-          "Mostra il riquadro per caricare il file EcommProdotti.xml di Danea. Chiamalo ogni volta che serve il file: mai descriverlo a parole.",
+          "Mostra il riquadro per caricare un file XML di Danea: listino prodotti (EcommProdotti.xml) o export di DDT. Chiamalo ogni volta che serve il file: mai descriverlo a parole.",
         parameters: z.object({}),
         execute: async () => ({
           ready: true,

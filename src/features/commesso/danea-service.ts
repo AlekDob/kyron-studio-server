@@ -1,7 +1,7 @@
 // Colla tra l'import in memoria, il catalogo Saleor e il diff puro.
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { buildDaneaPlan, type DaneaPlan, type ExistingVariant } from "./danea-plan.js";
-import { getDaneaImport } from "./danea-uploads.js";
+import { getProductsImport } from "./danea-uploads.js";
 import { listProducts } from "./reads.js";
 
 // Il catalogo intero in una query: un file Danea porta decine di codici e
@@ -26,7 +26,7 @@ export async function planDaneaImport(
   target: SaleorTarget,
   args: { importId: string; channelSlug: string },
 ): Promise<DaneaPlan & { filename: string }> {
-  const entry = getDaneaImport(args.importId);
+  const entry = getProductsImport(args.importId);
   const plan = buildDaneaPlan({
     channelSlug: args.channelSlug,
     groups: entry.groups,

@@ -38,8 +38,14 @@ const COLOR_NORMALIZE: Record<string, string> = {
   giallo: "Giallo",
 };
 
-function getTag(block: string, tag: string): string {
-  const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+/**
+ * Contenuto di un tag XML. Il prefisso e' ancorato: `<Total>` NON deve
+ * agganciare `<TotalWithoutTax>` (succede nei DDT, dove TotalWithoutTax viene
+ * prima di Total, e la cattura arriverebbe fino al vero </Total> restituendo
+ * spazzatura). Stessa trappola su Number/Numbering.
+ */
+export function getTag(block: string, tag: string): string {
+  const m = block.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`));
   if (!m) return "";
   return m[1]
     .replace(/&amp;/g, "&")

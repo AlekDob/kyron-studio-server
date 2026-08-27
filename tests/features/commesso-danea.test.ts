@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getTag,
   groupByAggregator,
   parseDaneaXml,
   parseVariantAttrs,
@@ -107,5 +108,13 @@ describe("piano import Danea", () => {
     const pencil = plan.groups.find((g) => g.aggregator === "PENCIL-PRO");
     expect(pencil?.newVariants).toEqual([]);
     expect(pencil?.warnings[0]).toContain("prezzo assente");
+  });
+
+  // Il prefisso del tag e' ancorato: <Total> non deve agganciare <TotalWithoutTax>,
+  // che nei DDT viene prima e farebbe leggere spazzatura.
+  it("getTag non aggancia un tag col prefisso piu' lungo", () => {
+    const block = "<TotalWithoutTax>335.25</TotalWithoutTax><Total>409</Total>";
+    expect(getTag(block, "Total")).toBe("409");
+    expect(getTag(block, "Number")).toBe("");
   });
 });

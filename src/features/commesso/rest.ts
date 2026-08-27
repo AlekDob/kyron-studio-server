@@ -77,8 +77,9 @@ commessoRestRoute.post("/import/upload", async (c) => {
     return c.json({
       id: entry.id,
       filename: entry.filename,
+      kind: entry.kind,
       recordCount: entry.recordCount,
-      groupCount: entry.groups.length,
+      groupCount: entry.kind === "products" ? entry.groups.length : 0,
     });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { fetchOrdersForRange } from "@/core/saleor/orders.js";
+import { listForOrder } from "./email-log.js";
 import {
   buildPortalIndex,
   enrichOrder,
@@ -260,6 +261,18 @@ ordersRoute.patch("/payment-total", async (c) => {
     const msg = String(err);
     if (msg.includes("order locked")) return c.json({ error: "order_locked" }, 409);
     return c.json({ error: "payment_total_failed", detail: msg }, 502);
+  }
+});
+
+// GET /api/v1/orders/comms?number=326 — comunicazioni gia' inviate al cliente
+// di quell'ordine (registro `email-log` su Payload). Sola lettura, per il drawer.
+ordersRoute.get("/comms", async (c) => {
+  const number = c.req.query("number");
+  if (!number) return c.json({ error: "invalid_query" }, 400);
+  try {
+    return c.json({ comms: await listForOrder(number) });
+  } catch (err) {
+    return c.json({ error: "comms_failed", detail: String(err) }, 502);
   }
 });
 
