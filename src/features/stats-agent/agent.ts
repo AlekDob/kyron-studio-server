@@ -10,6 +10,7 @@ import { getOverview } from "@/features/analytics/service.js";
 import { listPortals } from "@/features/portals/reader.js";
 import { HogqlRejected, assertReadOnly, statsBudget } from "./hogql-guard.js";
 import { fetchCampaigns, fetchCampaignDetail } from "./meta-ads.js";
+import { salesByProduct } from "./sales.js";
 import { STATS_SYSTEM_PROMPT } from "./prompt.js";
 
 interface AgentRunOptions {
@@ -124,6 +125,46 @@ export async function* runStatsAgent(opts: AgentRunOptions) {
           rowCount: rows.length,
           _ui: chartDescriptor({ title, kind, columns, rows }),
         }),
+      }),
+      sales_by_product: tool({
+        description:
+          "Prodotti realmente venduti nel periodo (righe d'ordine Saleor): quantita', fatturato e numero di ordini per prodotto, gia' ordinati dal piu' venduto. USA QUESTO per qualsiasi domanda su prodotti/best seller/mix di vendita: PostHog non conosce i nomi dei prodotti.",
+        parameters: z.object({
+          range: z.enum(RANGES).describe("periodo predefinito"),
+          channelSlug: z
+            .string()
+            .optional()
+            .describe("slug del portale scuola, per limitare a un solo canale"),
+          view: z
+            .enum(CHART_KINDS)
+            .default("bars")
+            .describe("bars per la classifica, pie solo se i prodotti sono max 6"),
+          top: z
+            .number()
+            .int()
+            .optional()
+            .describe("quanti prodotti mostrare nel grafico (default 10)"),
+        }),
+        execute: async ({ range, channelSlug, view, top }) => {
+          try {
+            const sales = await salesByProduct(range, channelSlug);
+            const rows = sales.rows.slice(0, top ?? 10);
+            return {
+              periodo: `${sales.from} → ${sales.to}`,
+              ordini: sales.orderCount,
+              prodotti: sales.rows.length,
+              rows,
+              _ui: chartDescriptor({
+                title: `Prodotti piu' venduti — ${range}`,
+                kind: view,
+                columns: ["prodotto", "quantita", "fatturato"],
+                rows: rows.map((r) => [r.prodotto, r.quantita, r.fatturato]),
+              }),
+            };
+          } catch (err) {
+            return { error: readableError(err) };
+          }
+        },
       }),
       get_meta_campaigns: tool({
         description:

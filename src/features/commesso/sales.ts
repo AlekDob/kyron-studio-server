@@ -49,7 +49,7 @@ interface SalesResponse {
 
 // Stessa allowlist di esclusione del report giornaliero: gli ordini di test
 // interni non sono vendite.
-function excludedEmails(): string[] {
+export function excludedEmails(): string[] {
   return (
     process.env.ORDERS_REPORT_EXCLUDE_EMAILS ??
     "alekdobrohotov@gmail.com,gmail@alekdob.com"

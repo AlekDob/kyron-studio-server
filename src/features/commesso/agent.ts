@@ -12,6 +12,8 @@ import { planPrices } from "./plan-service.js";
 import { planDaneaImport } from "./danea-service.js";
 import { applyDaneaPlan } from "./danea-apply.js";
 import { applyPricePlan, resolveChannelId } from "./price-writes.js";
+import { runPriceGuard } from "@/features/price-guard/check.js";
+import { resolvePortal } from "@/features/portals/reader.js";
 import {
   addProductImage,
   createProduct,
@@ -344,6 +346,48 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           }
           const outcome = await applyPricePlan(target, plan);
           return { applied: outcome.drift.length === 0, ...outcome };
+        }),
+      }),
+      run_all_checks: tool({
+        description:
+          "Price Guard su TUTTI i portali onboarded: verifica prezzi, sconti e voucher dei kit su Saleor produzione. SOLA LETTURA, non tocca niente. Usalo quando l'utente chiede un giro di controlli senza nominare un portale, e SEMPRE da solo dopo aver applicato un piano prezzi.",
+        parameters: z.object({}),
+        execute: safe(async () => {
+          const anomalies = await runPriceGuard();
+          return {
+            count: anomalies.length,
+            anomalies,
+            _ui: { component: "AnomalyReport", props: { anomalies }, id: `pg_all_${Date.now()}` },
+          };
+        }),
+      }),
+      check_portal: tool({
+        description:
+          "Price Guard su UN portale (nome o slug, fuzzy match). SOLA LETTURA. Usalo quando l'utente nomina una scuola, e subito dopo aver cambiato prezzi su quel portale.",
+        parameters: z.object({
+          query: z.string().describe("nome o slug del portale, es. 'massari'"),
+        }),
+        execute: safe(async ({ query }) => {
+          const res = await resolvePortal(query);
+          if (!res.portal) {
+            return {
+              resolved: false,
+              message: `Portale "${query}" non risolto univocamente.`,
+              candidates: res.candidates.map((c) => ({ slug: c.slug, nome: c.nome })),
+            };
+          }
+          const anomalies = await runPriceGuard({ portalSlug: res.portal.slug });
+          return {
+            resolved: true,
+            portal: res.portal.slug,
+            count: anomalies.length,
+            anomalies,
+            _ui: {
+              component: "AnomalyReport",
+              props: { anomalies },
+              id: `pg_${res.portal.slug}_${Date.now()}`,
+            },
+          };
         }),
       }),
     },
