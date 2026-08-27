@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
-import { getCatalogMeta, getProduct, listProducts } from "./reads.js";
+import { getCatalogMeta, getChannelDirectory, getProduct, listProducts } from "./reads.js";
+import { getCatalogSales } from "./sales.js";
 import { putDaneaImport } from "./danea-uploads.js";
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 
@@ -28,6 +29,20 @@ commessoRestRoute.get("/", async (c) => {
 commessoRestRoute.get("/meta", async (c) => {
   try {
     return c.json(await getCatalogMeta(targetOf(c)));
+  } catch (err) {
+    return c.json({ error: String(err) }, 502);
+  }
+});
+
+// Contorno del pannello Catalogo: nomi leggibili dei portali + vendite per SKU.
+// Un solo giro per il client, e le vendite sono cachate 15' lato server.
+commessoRestRoute.get("/insights", async (c) => {
+  try {
+    const [channels, sales] = await Promise.all([
+      getChannelDirectory(targetOf(c)),
+      getCatalogSales(),
+    ]);
+    return c.json({ channels, sales });
   } catch (err) {
     return c.json({ error: String(err) }, 502);
   }

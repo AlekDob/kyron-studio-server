@@ -50,6 +50,20 @@ function safe<A, R>(fn: (args: A) => Promise<R>) {
   };
 }
 
+// Il result completo va al client (il pannello ci prende le thumbnail), ma al
+// modello serve solo il testo: senza imageUrl non puo' incollare foto in chat,
+// e senza description/id il contesto non si riempie di roba inutile.
+function slim<T extends { imageUrl?: unknown; description?: unknown; id?: unknown }>(
+  row: T,
+): Omit<T, "imageUrl" | "description" | "id"> {
+  const { imageUrl: _i, description: _d, id: _x, ...rest } = row;
+  return rest;
+}
+
+function asText(value: unknown) {
+  return [{ type: "text" as const, text: JSON.stringify(value) }];
+}
+
 async function resolveProductId(target: SaleorTarget, slug: string): Promise<string> {
   const product = await getProduct(target, slug);
   if (!product) throw new Error(`Prodotto "${slug}" non trovato su ${target}`);
@@ -78,6 +92,12 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           const products = await listProducts(target, { search });
           return { count: products.length, products };
         }),
+        experimental_toToolResultContent: (r) =>
+          asText(
+            "products" in r
+              ? { count: r.count, products: r.products.map(slim) }
+              : r,
+          ),
       }),
       get_product: tool({
         description: "Scheda completa di un prodotto dal suo slug.",
@@ -86,6 +106,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           const product = await getProduct(target, slug);
           return product ?? { error: `Prodotto "${slug}" non trovato su ${target}` };
         }),
+        experimental_toToolResultContent: (r) => asText("slug" in r ? slim(r) : r),
       }),
       get_catalog_meta: tool({
         description:

@@ -3,6 +3,7 @@
 // pubblicati, le giacenze e i prezzi per singolo canale, che la query pubblica
 // non espone.
 import { adminRequest, type SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
+import { listPortals } from "@/features/portals/reader.js";
 
 export interface VariantChannelPrice {
   channelSlug: string;
@@ -203,6 +204,28 @@ export async function getCatalogMeta(target: SaleorTarget): Promise<CatalogMeta>
     productTypes: data.productTypes.edges.map((e) => e.node),
     warehouses: data.warehouses.edges.map((e) => e.node),
   };
+}
+
+/**
+ * Canali con il nome leggibile della scuola. Il nome vero sta su Payload
+ * (pending-schools.nome); il nome canale Saleor e' il fallback per il main shop
+ * e per i portali pilot che non hanno il doc Payload.
+ */
+export async function getChannelDirectory(
+  target: SaleorTarget,
+): Promise<Array<{ slug: string; name: string }>> {
+  const data = await adminRequest<{ channels: Array<{ slug: string; name: string }> }>(
+    target,
+    `query { channels { slug name } }`,
+  );
+  let portals = new Map<string, string>();
+  try {
+    const list = await listPortals();
+    portals = new Map(list.map((p) => [p.slug, p.nome]));
+  } catch (e) {
+    console.warn("[commesso] portal names unavailable:", String(e));
+  }
+  return data.channels.map((c) => ({ slug: c.slug, name: portals.get(c.slug) ?? c.name }));
 }
 
 /** Prezzo attuale di una variante su un canale. Usato dal drift check. */

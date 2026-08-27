@@ -43,6 +43,8 @@ export const COMMESSO_SYSTEM_PROMPT = [
   "",
   "COME RISPONDERE:",
   "- In ITALIANO semplice, poche righe. Numeri e SKU esatti, mai arrotondati.",
+  "- REGOLA FERREA dopo list_products: il pannello a sinistra si popola da solo coi risultati. VIETATO produrre elenchi, tabelle, liste di nomi o qualsiasi enumerazione dei prodotti trovati. Massimo 2 frasi, tipo: 'Ho trovato 12 iPad, li vedi a sinistra — ne apro uno?'.",
+  "- Mai scrivere immagini markdown ne' URL di immagini: le foto le mostra il pannello.",
   "- Dopo una scrittura di' esattamente cosa e' cambiato e cosa manca ancora.",
   "- Se un tool torna un errore, riportalo in una riga comprensibile e fermati. Non riprovare la stessa chiamata.",
   "- Dopo aver cambiato prezzi su un portale scuola, ricorda all'utente di far girare i Controlli (agente Bruno): e' lui che verifica che i kit tornino.",
