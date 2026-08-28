@@ -5,21 +5,26 @@ import { streamSSE } from "hono/streaming";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 import { requireAdmin } from "@/middleware/require-admin.js";
-import { runCommessoAgent } from "./agent.js";
+import { runCommessoAgent, type AgentScope } from "./agent.js";
 
 export const commessoRoute = new Hono();
 
 commessoRoute.use("*", tenantMiddleware);
 commessoRoute.use("*", studioAuthMiddleware);
 
-// Admin-only: da questa chat si scrivono prezzi e catalogo di produzione. Se
-// servira' aprirla a Kevin e Robbie non-admin serve prima un ruolo intermedio.
+// ponytail: admin-only per tutti e due gli scope, perche' dal Catalogo si
+// scrivono prezzi di produzione. Il pannello Ordini invece (/api/v1/orders) e'
+// aperto a ogni utente Studio: chi non e' admin vede la lista ma non ha Nico
+// accanto. Serve un ruolo intermedio per aprire il solo scope "orders".
 commessoRoute.post("/", requireAdmin, async (c) => {
   const tenant = c.get("tenant");
   const user = c.get("studioUser");
   const body = (await c.req.json()) as {
     messages: Array<{ role: "user" | "assistant"; content: string }>;
+    scope?: string;
   };
+  // Lo scope arriva dal modulo che ha aperto la chat: default catalogo.
+  const scope: AgentScope = body.scope === "orders" ? "orders" : "catalogo";
   const cookie = c.req.header("Cookie") ?? "";
 
   return streamSSE(c, async (stream) => {
@@ -29,6 +34,7 @@ commessoRoute.post("/", requireAdmin, async (c) => {
         cookie,
         userEmail: user.email,
         messages: body.messages,
+        scope,
       })) {
         if (chunk.type === "text-delta") {
           await stream.writeSSE({ data: JSON.stringify({ delta: chunk.textDelta }) });

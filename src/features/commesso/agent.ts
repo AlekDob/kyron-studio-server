@@ -7,6 +7,7 @@ import type { TenantConfig } from "@/config/tenants/index.js";
 import { resolveModel } from "@/features/settings/resolve-model.js";
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { COMMESSO_SYSTEM_PROMPT } from "./prompt.js";
+import { ORDERS_SYSTEM_PROMPT } from "./prompt-orders.js";
 import { safe } from "./tool-safe.js";
 import { orderTools } from "./order-tools.js";
 import { ddtTools } from "./ddt-tools.js";
@@ -34,7 +35,11 @@ interface AgentRunOptions {
   cookie: string;
   userEmail: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
+  /** Da quale modulo arriva la chat: cambia prompt e tool, non l'agente. */
+  scope?: AgentScope;
 }
+
+export type AgentScope = "catalogo" | "orders";
 
 // Il default e' prod: e' li' che vendiamo. Staging si chiede esplicitamente.
 const TARGET = z
@@ -62,19 +67,38 @@ async function resolveProductId(target: SaleorTarget, slug: string): Promise<str
   return product.id;
 }
 
+// Stessa card in tutti e due i moduli: listino nel Catalogo, export DDT in Ordini.
+const daneaUploader = tool({
+  description:
+    "Mostra il riquadro per caricare un file XML di Danea: listino prodotti (EcommProdotti.xml) o export di DDT. Chiamalo ogni volta che serve il file: mai descriverlo a parole.",
+  parameters: z.object({}),
+  execute: async () => ({
+    ready: true,
+    _ui: { component: "DaneaUploader", props: {}, id: `danea_${Date.now()}` },
+  }),
+});
+
 export async function* runCommessoAgent(opts: AgentRunOptions) {
   void opts.tenant;
   void opts.cookie;
   const { model } = await resolveModel("commesso", "default");
 
+  // Un agente, due mestieri: nel modulo Catalogo tocca prodotti e prezzi, nel
+  // modulo Ordini la lista ordini e le comunicazioni. Dare tutti i tool a
+  // entrambi allunga il contesto e fa sconfinare Nico nel pannello sbagliato.
+  const orders = {
+    ...orderTools,
+    ...ddtTools(opts.userEmail),
+    render_danea_uploader: daneaUploader,
+  };
+  const isOrders = opts.scope === "orders";
+
   const result = streamText({
     model,
-    system: COMMESSO_SYSTEM_PROMPT,
+    system: isOrders ? ORDERS_SYSTEM_PROMPT : COMMESSO_SYSTEM_PROMPT,
     messages: opts.messages,
     maxSteps: 10,
-    tools: {
-      ...orderTools,
-      ...ddtTools(opts.userEmail),
+    tools: isOrders ? orders : {
       list_products: tool({
         description:
           "Cerca prodotti nel catalogo Saleor (anche non pubblicati) per nome, slug o SKU. Passa channelSlug quando l'utente parla di un portale: filtra quel canale e torna i prezzi di quel canale.",
@@ -239,19 +263,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           return { ok: true, channelSlug };
         }),
       }),
-      render_danea_uploader: tool({
-        description:
-          "Mostra il riquadro per caricare un file XML di Danea: listino prodotti (EcommProdotti.xml) o export di DDT. Chiamalo ogni volta che serve il file: mai descriverlo a parole.",
-        parameters: z.object({}),
-        execute: async () => ({
-          ready: true,
-          _ui: {
-            component: "DaneaUploader",
-            props: {},
-            id: `danea_${Date.now()}`,
-          },
-        }),
-      }),
+      render_danea_uploader: daneaUploader,
       plan_danea_import: tool({
         description:
           "Confronta il file Danea caricato col catalogo: cosa e' nuovo, quali prezzi cambierebbero, cosa e' invariato. NON scrive niente.",

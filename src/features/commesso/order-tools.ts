@@ -11,10 +11,41 @@ import {
 import { buildPortalIndex, enrichOrder, type PortalMeta } from "@/features/orders/enrich.js";
 import { excludedEmails } from "./sales.js";
 import { isWorkflowStatus, setWorkflowStatus, WORKFLOW_STATUSES } from "@/features/orders/status.js";
+import type { EnrichedOrder } from "@/features/orders/enrich.js";
 import { listForOrder } from "@/features/orders/email-log.js";
 import { safe } from "./tool-safe.js";
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "formato YYYY-MM-DD");
+
+// Il pannello Ordini mostra tre stati, non i cinque della lavorazione: il tool
+// puo' esprimere solo quello che il pannello sa disegnare, altrimenti la
+// ricevuta in chat conta righe che in pagina non si vedono.
+const STATUS_BUCKET = z.enum(["all", "da-confermare", "confermati", "annullati"]);
+type StatusBucket = z.infer<typeof STATUS_BUCKET>;
+
+// Copia della statusBucketOf del client (studio/src/components/orders/orders-filter.ts).
+// Stessa priorita': annullato -> bozza -> confermato. Se divergono, il conteggio
+// della ricevuta e quello dei KPI in pagina non tornano.
+function statusBucketOf(o: EnrichedOrder): Exclude<StatusBucket, "all"> {
+  if (o.workflowStatus === "annullato" || o.status === "CANCELED") return "annullati";
+  if (o.status === "UNCONFIRMED" || o.status === "DRAFT") return "da-confermare";
+  return "confermati";
+}
+
+// Local-part dell'email agente: e' l'etichetta che si vede nel select in pagina.
+function agentLabel(email: string): string {
+  return email ? email.split("@")[0] : "";
+}
+
+// Ricerca libera sugli stessi campi della barra di ricerca del pannello.
+function matchesQuery(o: EnrichedOrder, q: string): boolean {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    o.number, o.customerName, o.companyName, o.userEmail,
+    o.customerPhone, o.fiscalCode, o.vatNumber, o.sdiCode, o.pspReference,
+  ].join(" ").toLowerCase().includes(needle);
+}
 
 // Il contesto del modello non regge le righe di 500 ordini: in lista si manda
 // solo l'intestazione. Le righe si vedono con get_order.
@@ -42,38 +73,85 @@ async function loadOrders(from: string, to: string): Promise<OrderSummary[]> {
 export const orderTools = {
   list_orders: tool({
     description:
-      "Elenca gli ordini Saleor creati in un intervallo di date. Esclude gli ordini di test. Senza righe: per quelle usa get_order.",
+      "Filtra la lista ordini del pannello a fianco e ne torna il conteggio. La lista in pagina si riallinea da sola: NON ripetere le righe in chat. Senza righe complete: per quelle usa get_order.",
     parameters: z.object({
       from: DATE.describe("data inizio inclusa"),
       to: DATE.describe("data fine inclusa"),
-      status: z.string().optional().describe(`stato lavorazione: ${WORKFLOW_STATUSES.join(", ")}`),
+      status: STATUS_BUCKET.optional().describe("stato mostrato in pagina"),
       portalSlug: z.string().optional().describe("slug del portale scuola"),
+      agent: z.string().optional().describe("agente commerciale, nome o email"),
+      q: z.string().optional().describe("ricerca libera: numero ordine, cliente, transazione"),
     }),
-    execute: safe(async ({ from, to, status, portalSlug }) => {
+    execute: safe(async ({ from, to, status, portalSlug, agent, q }) => {
       const index = await portalIndex();
       let orders = (await loadOrders(from, to)).map((o) => enrichOrder(o, index));
       if (portalSlug) orders = orders.filter((o) => o.channelSlug === portalSlug);
-      if (status) orders = orders.filter((o) => o.workflowStatus === status);
+      // L'agente puo' arrivare come "Ravelli" o come email intera: normalizziamo
+      // sulla local-part, che e' quella che il pannello mette nel select.
+      const agentKey = agent ? agentLabel(agent).toLowerCase() : "";
+      if (agentKey) orders = orders.filter((o) => agentLabel(o.agent).toLowerCase() === agentKey);
+      if (status && status !== "all") orders = orders.filter((o) => statusBucketOf(o) === status);
+      if (q) orders = orders.filter((o) => matchesQuery(o, q));
+      const resolvedAgent = agentKey ? (agentLabel(orders[0]?.agent ?? "") || agentKey) : "all";
       return {
         from,
         to,
         count: orders.length,
         totalGross: orders.reduce((s, o) => s + o.totalGross, 0),
-        orders: orders.map(slimOrder),
+        // ponytail: 40 righe al modello, il resto lo mostra il pannello.
+        orders: orders.slice(0, 40).map(slimOrder),
+        _ui: {
+          component: "OrdersReceipt",
+          props: {
+            kind: "filter",
+            filter: {
+              from, to,
+              portal: portalSlug ?? "all",
+              agent: resolvedAgent,
+              status: status ?? "all",
+              query: q ?? "",
+            },
+            count: orders.length,
+            totalGross: orders.reduce((s, o) => s + o.totalGross, 0),
+          },
+          id: `orders_${Date.now()}`,
+        },
       };
     }),
+    // Il descriptor serve solo al client: nel contesto del modello e' rumore.
+    experimental_toToolResultContent: (r: unknown) => {
+      const { _ui: _u, ...rest } = (r ?? {}) as Record<string, unknown>;
+      void _u;
+      return [{ type: "text" as const, text: JSON.stringify(rest) }];
+    },
   }),
 
   get_order: tool({
     description:
-      "Dettaglio di un ordine dal suo numero visibile (es. \"326\"): righe, cliente, pagamento, comunicazioni gia' inviate.",
+      "Dettaglio di un ordine dal suo numero visibile (es. \"326\"): righe, cliente, pagamento, comunicazioni gia' inviate. Il pannello apre la scheda da solo.",
     parameters: z.object({ number: z.string().describe("numero ordine, es. 326") }),
     execute: safe(async ({ number }) => {
       const order = await fetchOrderByNumber(number);
       if (!order) return { found: false as const, number };
       const index = await portalIndex();
       const comms = await listForOrder(number).catch(() => []);
-      return { found: true as const, order: enrichOrder(order, index), comms };
+      const enriched = enrichOrder(order, index);
+      return {
+        found: true as const,
+        order: enriched,
+        comms,
+        _ui: {
+          component: "OrdersReceipt",
+          props: {
+            kind: "order",
+            number: enriched.number,
+            customer: enriched.customerName || enriched.companyName,
+            portalName: enriched.portalName,
+            totalGross: enriched.totalGross,
+          },
+          id: `order_${enriched.number}`,
+        },
+      };
     }),
   }),
 
