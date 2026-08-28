@@ -166,7 +166,16 @@ export function nextSaleorPageSize(have: number, wanted: number): number {
 export function matchesSearch(p: ProductRow, search: string): boolean {
   const q = search.trim().toLowerCase();
   if (!q) return true;
-  const haystack = [p.name, p.slug, p.category ?? "", ...p.variants.map((v) => v.sku)]
+  const haystack = [
+    p.name,
+    p.slug,
+    p.category ?? "",
+    ...p.variants.flatMap((v) => [
+      v.sku,
+      v.name,
+      ...v.attributes.map((a) => a.value),
+    ]),
+  ]
     .join(" ")
     .toLowerCase();
   return q.split(/\s+/).every((word) => haystack.includes(word));
@@ -177,7 +186,12 @@ export async function listProducts(
   target: SaleorTarget,
   opts: ListProductsOptions = {},
 ): Promise<ProductRow[]> {
-  const wanted = Math.max(1, opts.limit ?? SALEOR_PAGE_MAX);
+  // Senza tetto alto la ricerca per canale vede solo i primi 100 prodotti
+  // Saleor (ordine interno, non "i piu' venduti") e Orsoline sparisce.
+  const wanted = Math.max(
+    1,
+    opts.limit ?? (opts.search || opts.channelSlug ? 500 : SALEOR_PAGE_MAX),
+  );
   const rows: ProductRow[] = [];
   let after: string | null = null;
   do {

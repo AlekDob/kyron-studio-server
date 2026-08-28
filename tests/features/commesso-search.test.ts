@@ -36,6 +36,24 @@ describe("matchesSearch", () => {
   it("ricerca vuota = passa tutto", () => {
     expect(matchesSearch(ipad, "  ")).toBe(true);
   });
+
+  it("trova il taglio 128 anche se lo SKU e' un codice Apple senza 128", () => {
+    const appleSku = {
+      ...ipad,
+      variants: [
+        {
+          id: "V1",
+          sku: "MD3Y4TY/A",
+          name: "128GB Blu",
+          stock: 3,
+          attributes: [{ name: "Capacita", value: "128GB" }],
+          channels: [],
+        },
+      ],
+    } satisfies ProductRow;
+    expect(matchesSearch(appleSku, "ipad 128")).toBe(true);
+    expect(matchesSearch(ipad, "ipad 128")).toBe(true);
+  });
 });
 
 describe("nextSaleorPageSize", () => {
