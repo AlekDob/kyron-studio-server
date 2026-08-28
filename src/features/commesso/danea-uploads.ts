@@ -23,6 +23,10 @@ interface StoredBase {
 export interface StoredProductsImport extends StoredBase {
   kind: "products";
   groups: DaneaGroup[];
+  /** Nomi confermati in UI. Apply li legge da qui, non dal modello. */
+  mappings?: import("./danea-apply.js").GroupMapping[];
+  mappingsConfirmed?: boolean;
+  createdSlugs?: string[];
 }
 
 export interface StoredDdtImport extends StoredBase {
@@ -103,4 +107,21 @@ export function getProductsImport(id: string): StoredProductsImport {
     throw new Error(`L'import ${id} e' un file di DDT, non un listino prodotti.`);
   }
   return entry;
+}
+
+export function saveProductMappings(
+  id: string,
+  mappings: import("./danea-apply.js").GroupMapping[],
+): StoredProductsImport {
+  const entry = getProductsImport(id);
+  entry.mappings = mappings;
+  entry.mappingsConfirmed = true;
+  store.set(entry.id, entry);
+  return entry;
+}
+
+export function saveCreatedSlugs(id: string, slugs: string[]): void {
+  const entry = getProductsImport(id);
+  entry.createdSlugs = [...new Set([...(entry.createdSlugs ?? []), ...slugs])];
+  store.set(entry.id, entry);
 }

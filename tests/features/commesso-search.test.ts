@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesSearch } from "@/features/commesso/reads.js";
+import { matchesSearch, nextSaleorPageSize, productOnChannel, narrowProductToChannel } from "@/features/commesso/reads.js";
 import type { ProductRow } from "@/features/commesso/reads.js";
 
 // Il caso vero che si e' rotto in produzione: la ricerca di Saleor tornava zero
@@ -35,5 +35,80 @@ describe("matchesSearch", () => {
 
   it("ricerca vuota = passa tutto", () => {
     expect(matchesSearch(ipad, "  ")).toBe(true);
+  });
+});
+
+describe("nextSaleorPageSize", () => {
+  it("non chiede mai piu' di 100, anche se ne servono 200", () => {
+    expect(nextSaleorPageSize(0, 200)).toBe(100);
+    expect(nextSaleorPageSize(100, 200)).toBe(100);
+    expect(nextSaleorPageSize(200, 200)).toBe(0);
+  });
+});
+
+const ipadOrsoline = {
+  ...ipad,
+  channels: ["default-channel", "orsoline-san-carlo"],
+  variants: [
+    {
+      id: "V1",
+      sku: "IPADA16-128-BLU",
+      name: "128GB Blu",
+      stock: 3,
+      attributes: [],
+      channels: [
+        { channelSlug: "default-channel", priceEur: 612, published: true },
+        { channelSlug: "orsoline-san-carlo", priceEur: 509, published: true },
+      ],
+    },
+  ],
+} satisfies ProductRow;
+
+const coverOnlyMain = {
+  ...ipad,
+  id: "P2",
+  slug: "coverone",
+  name: "Wacebo coverONE",
+  channels: ["default-channel"],
+  variants: [
+    {
+      id: "V2",
+      sku: "COVERONE",
+      name: "Nero",
+      stock: 1,
+      attributes: [],
+      channels: [{ channelSlug: "default-channel", priceEur: 29, published: true }],
+    },
+  ],
+} satisfies ProductRow;
+
+describe("productOnChannel", () => {
+  it("tiene i prodotti pubblicati sul canale", () => {
+    expect(productOnChannel(ipadOrsoline, "orsoline-san-carlo")).toBe(true);
+    expect(productOnChannel(coverOnlyMain, "orsoline-san-carlo")).toBe(false);
+  });
+
+  it("tiene anche chi ha solo il prezzo, senza listing pubblicato", () => {
+    const unpublished = {
+      ...coverOnlyMain,
+      channels: [],
+      variants: [
+        {
+          ...coverOnlyMain.variants[0],
+          channels: [{ channelSlug: "orsoline-san-carlo", priceEur: 23, published: true }],
+        },
+      ],
+    } satisfies ProductRow;
+    expect(productOnChannel(unpublished, "orsoline-san-carlo")).toBe(true);
+  });
+});
+
+describe("narrowProductToChannel", () => {
+  it("lascia al modello solo i prezzi di quel canale", () => {
+    const slim = narrowProductToChannel(ipadOrsoline, "orsoline-san-carlo");
+    expect(slim.channels).toEqual(["orsoline-san-carlo"]);
+    expect(slim.variants[0].channels).toEqual([
+      { channelSlug: "orsoline-san-carlo", priceEur: 509, published: true },
+    ]);
   });
 });

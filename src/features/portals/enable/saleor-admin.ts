@@ -102,6 +102,34 @@ export async function adminRequest<T>(
   return res.data;
 }
 
+export async function adminToken(target: SaleorTarget): Promise<string> {
+  return tokens.get(target) ?? login(target);
+}
+
+/** GraphQL multipart (Upload): serve per le foto prodotto, non per le mutation JSON. */
+export async function adminMultipart<T>(
+  target: SaleorTarget,
+  form: FormData,
+): Promise<T> {
+  const send = async (token: string): Promise<GraphQLResponse<T>> => {
+    const res = await fetch(saleorUrlFor(target), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) throw new Error(`Saleor ${target} HTTP ${res.status}: ${await res.text()}`);
+    return (await res.json()) as GraphQLResponse<T>;
+  };
+  let json = await send(await adminToken(target));
+  const expired = json.errors?.some((e) => /signature|expired|jwt/i.test(e.message));
+  if (expired) json = await send(await login(target));
+  if (json.errors?.length) {
+    throw new Error(`Saleor ${target}: ${json.errors.map((e) => e.message).join(", ")}`);
+  }
+  if (!json.data) throw new Error(`Saleor ${target}: risposta senza data`);
+  return json.data;
+}
+
 // Helper per i payload mutation Saleor che riportano errors[] applicativi.
 export function checkErrors(
   errors: Array<{ field?: string | null; message: string }> | undefined,

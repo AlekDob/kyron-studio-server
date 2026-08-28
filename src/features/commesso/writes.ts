@@ -6,6 +6,7 @@
 // pubblicata a tappeto diventerebbe comprabile dove non deve. La pubblicazione
 // e' un gesto esplicito, non un effetto collaterale della creazione.
 import {
+  adminMultipart,
   adminRequest,
   checkErrors,
   type SaleorTarget,
@@ -153,6 +154,29 @@ export async function setStock(
     },
   );
   checkErrors(data.productVariantStocksUpdate.errors, "productVariantStocksUpdate");
+}
+
+/** Immagine da file: multipart come il CLI Danea. */
+export async function addProductImageFile(
+  target: SaleorTarget,
+  args: { productId: string; bytes: Buffer; filename: string; mime: string; alt?: string },
+): Promise<void> {
+  const form = new FormData();
+  form.append(
+    "operations",
+    JSON.stringify({
+      query: `mutation ($input: ProductMediaCreateInput!) {
+        productMediaCreate(input: $input) { errors { field message } }
+      }`,
+      variables: {
+        input: { product: args.productId, alt: args.alt ?? "", image: null },
+      },
+    }),
+  );
+  form.append("map", JSON.stringify({ "0": ["variables.input.image"] }));
+  form.append("0", new Blob([new Uint8Array(args.bytes)], { type: args.mime }), args.filename);
+  const data = await adminMultipart<{ productMediaCreate: { errors: Errors } }>(target, form);
+  checkErrors(data.productMediaCreate.errors, "productMediaCreate");
 }
 
 /** Immagine da URL: Saleor la scarica lui, non passiamo per il multipart. */

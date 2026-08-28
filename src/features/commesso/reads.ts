@@ -121,16 +121,47 @@ function toProduct(p: RawProduct): ProductRow {
 export interface ListProductsOptions {
   search?: string;
   limit?: number;
+  /** Se c'e', tiene solo i prodotti listati su questo canale (pubblicati o con prezzo). */
+  channelSlug?: string;
+}
+
+/** True se il prodotto e' pubblicato o ha un prezzo su quel canale. */
+export function productOnChannel(p: ProductRow, channelSlug: string): boolean {
+  if (p.channels.includes(channelSlug)) return true;
+  return p.variants.some((v) =>
+    v.channels.some((c) => c.channelSlug === channelSlug),
+  );
+}
+
+/** Riduce i listing al canale chiesto: meno rumore per il modello, stessi prodotti. */
+export function narrowProductToChannel(p: ProductRow, channelSlug: string): ProductRow {
+  return {
+    ...p,
+    channels: p.channels.filter((s) => s === channelSlug),
+    variants: p.variants.map((v) => ({
+      ...v,
+      channels: v.channels.filter((c) => c.channelSlug === channelSlug),
+    })),
+  };
+}
+
+/**
+ * Saleor rifiuta `first` > 100 su ogni connection ("Limit of 100 exceeded").
+ * Le pagine oltre la prima si prendono con `after`. Chiedere 200 in un colpo
+ * fa cadere `plan_danea_import` anche su un XML da 50 righe: il tetto e' della
+ * query catalogo, non del file Danea.
+ */
+export const SALEOR_PAGE_MAX = 100;
+
+export function nextSaleorPageSize(have: number, wanted: number): number {
+  return Math.min(SALEOR_PAGE_MAX, Math.max(0, wanted - have));
 }
 
 /**
  * La ricerca la facciamo noi, non Saleor. Il `filter: { search }` di Saleor si
  * appoggia a una colonna di ricerca del database che su questa installazione e'
  * vuota: cercare "iPad" tornava zero risultati anche con l'iPad in catalogo.
- * Il catalogo sta in una pagina, quindi filtrare qui costa niente ed e' immune
- * al problema.
- * ponytail: filtro in memoria sulla prima pagina. Se il catalogo passa le 200
- * righe serve la ricerca vera (search vector di Saleor da ripopolare).
+ * Scarichiamo fino a `limit` prodotti (a pagine da 100) e filtriamo in memoria.
  */
 export function matchesSearch(p: ProductRow, search: string): boolean {
   const q = search.trim().toLowerCase();
@@ -146,17 +177,34 @@ export async function listProducts(
   target: SaleorTarget,
   opts: ListProductsOptions = {},
 ): Promise<ProductRow[]> {
-  const data = await adminRequest<{ products: { edges: Array<{ node: RawProduct }> } }>(
-    target,
-    `query ($first: Int!) {
-      products(first: $first) {
-        edges { node { ${PRODUCT_FIELDS} } }
-      }
-    }`,
-    { first: Math.min(opts.limit ?? 100, 200) },
-  );
-  const rows = data.products.edges.map((e) => toProduct(e.node));
-  return opts.search ? rows.filter((p) => matchesSearch(p, opts.search!)) : rows;
+  const wanted = Math.max(1, opts.limit ?? SALEOR_PAGE_MAX);
+  const rows: ProductRow[] = [];
+  let after: string | null = null;
+  do {
+    const first = nextSaleorPageSize(rows.length, wanted);
+    if (first === 0) break;
+    const data = (await adminRequest(
+      target,
+      `query ($first: Int!, $after: String) {
+        products(first: $first, after: $after) {
+          edges { node { ${PRODUCT_FIELDS} } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`,
+      { first, after },
+    )) as {
+      products: {
+        edges: Array<{ node: RawProduct }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    };
+    const conn = data.products;
+    rows.push(...conn.edges.map((e: { node: RawProduct }) => toProduct(e.node)));
+    after = conn.pageInfo.hasNextPage && rows.length < wanted ? conn.pageInfo.endCursor : null;
+  } while (after);
+  const searched = opts.search ? rows.filter((p) => matchesSearch(p, opts.search!)) : rows;
+  if (!opts.channelSlug) return searched;
+  return searched.filter((p) => productOnChannel(p, opts.channelSlug!));
 }
 
 export async function getProduct(
@@ -194,10 +242,11 @@ export async function getCatalogMeta(target: SaleorTarget): Promise<CatalogMeta>
       warehouses(first: 20) { edges { node { id name } } }
     }`,
   );
+  const portals = await portalNamesBySlug();
   return {
     channels: data.channels.map((c) => ({
       slug: c.slug,
-      name: c.name,
+      name: portals.get(c.slug) ?? c.name,
       currency: c.currencyCode,
     })),
     categories: data.categories.edges.map((e) => e.node),
@@ -218,14 +267,18 @@ export async function getChannelDirectory(
     target,
     `query { channels { slug name } }`,
   );
-  let portals = new Map<string, string>();
+  const portals = await portalNamesBySlug();
+  return data.channels.map((c) => ({ slug: c.slug, name: portals.get(c.slug) ?? c.name }));
+}
+
+async function portalNamesBySlug(): Promise<Map<string, string>> {
   try {
     const list = await listPortals();
-    portals = new Map(list.map((p) => [p.slug, p.nome]));
+    return new Map(list.map((p) => [p.slug, p.nome]));
   } catch (e) {
     console.warn("[commesso] portal names unavailable:", String(e));
+    return new Map();
   }
-  return data.channels.map((c) => ({ slug: c.slug, name: portals.get(c.slug) ?? c.name }));
 }
 
 /** Prezzo attuale di una variante su un canale. Usato dal drift check. */

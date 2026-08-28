@@ -10,10 +10,13 @@ import { COMMESSO_SYSTEM_PROMPT } from "./prompt.js";
 import { safe } from "./tool-safe.js";
 import { orderTools } from "./order-tools.js";
 import { ddtTools } from "./ddt-tools.js";
-import { getCatalogMeta, getProduct, listProducts } from "./reads.js";
+import { getCatalogMeta, getProduct, listProducts, narrowProductToChannel, type ProductRow } from "./reads.js";
 import { planPrices } from "./plan-service.js";
 import { planDaneaImport } from "./danea-service.js";
 import { applyDaneaPlan } from "./danea-apply.js";
+import type { DaneaPlan } from "./danea-plan.js";
+import { addProductsToPortals } from "./danea-portals.js";
+import { getProductsImport, saveCreatedSlugs } from "./danea-uploads.js";
 import { applyPricePlan, resolveChannelId } from "./price-writes.js";
 import { runPriceGuard } from "@/features/price-guard/check.js";
 import { resolvePortal } from "@/features/portals/reader.js";
@@ -74,19 +77,29 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
       ...ddtTools(opts.userEmail),
       list_products: tool({
         description:
-          "Cerca prodotti nel catalogo Saleor (anche non pubblicati) per nome, slug o SKU. Torna varianti, giacenze e prezzi per canale.",
+          "Cerca prodotti nel catalogo Saleor (anche non pubblicati) per nome, slug o SKU. Passa channelSlug quando l'utente parla di un portale: filtra quel canale e torna i prezzi di quel canale.",
         parameters: z.object({
           search: z.string().optional().describe("testo da cercare; vuoto = tutto"),
+          channelSlug: z
+            .string()
+            .optional()
+            .describe("slug del portale o default-channel; assente = tutto il catalogo"),
           target: TARGET,
         }),
-        execute: safe(async ({ search, target }) => {
-          const products = await listProducts(target, { search });
-          return { count: products.length, products };
+        execute: safe(async ({ search, channelSlug, target }) => {
+          const products = await listProducts(target, { search, channelSlug });
+          return { count: products.length, products, channelSlug: channelSlug ?? null };
         }),
         experimental_toToolResultContent: (r) =>
           asText(
             "products" in r
-              ? { count: r.count, products: r.products.map(slim) }
+              ? {
+                  count: r.count,
+                  channelSlug: r.channelSlug,
+                  products: r.products.map((p: ProductRow) =>
+                    slim(r.channelSlug ? narrowProductToChannel(p, r.channelSlug) : p),
+                  ),
+                }
               : r,
           ),
       }),
@@ -101,7 +114,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
       }),
       get_catalog_meta: tool({
         description:
-          "Canali, categorie, tipi prodotto e magazzini realmente esistenti. Da leggere prima di creare un prodotto o di scrivere un prezzo.",
+          "Canali (slug e nome scuola), categorie, tipi prodotto e magazzini realmente esistenti. Da leggere per risolvere un nome scuola o prima di creare un prodotto.",
         parameters: z.object({ target: TARGET }),
         execute: safe(async ({ target }) => getCatalogMeta(target)),
       }),
@@ -236,38 +249,63 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
             plan,
             _ui: {
               component: "DaneaImportPlan",
-              props: { target, plan },
+              props: { target, importId, plan },
               id: `daneaplan_${Date.now()}`,
             },
           };
         }),
+        experimental_toToolResultContent: (r) =>
+          asText(
+            "error" in r && r.error
+              ? r
+              : {
+                  importId: "importId" in r ? r.importId : undefined,
+                  totals: "plan" in r ? r.plan.totals : undefined,
+                  newGroups:
+                    "plan" in r
+                      ? (r.plan as DaneaPlan).groups
+                          .filter((g) => g.newVariants.length > 0)
+                          .map((g) => g.aggregator)
+                      : [],
+                  note: "I nomi si confermano sulla card, non in questo risultato.",
+                },
+          ),
       }),
       apply_danea_import: tool({
         description:
-          "Crea i prodotti e le varianti NUOVE del piano Danea, col loro prezzo sul canale indicato. Nascono non pubblicati. I prezzi che cambiano su prodotti esistenti NON si toccano qui: quelli passano da plan_prices. Serve la conferma dell'utente.",
+          "Crea i prodotti e le varianti NUOVE. I mapping stanno sulla card (gia' confermati). NON inventare mappings. Nascono non pubblicati.",
         parameters: z.object({
           importId: z.string(),
           channelSlug: z.string(),
-          mappings: z
-            .array(
-              z.object({
-                aggregator: z.string().describe("chiave del gruppo nel piano"),
-                productName: z.string().describe("nome del prodotto per il negozio"),
-                slug: z.string(),
-                productTypeId: z.string().describe("id da get_catalog_meta"),
-                categorySlug: z.string(),
-              }),
-            )
-            .min(1)
-            .describe("un mapping per ogni gruppo da creare; i gruppi senza mapping si saltano"),
           confirm: z.literal(true),
           target: TARGET,
         }),
-        execute: safe(async ({ importId, channelSlug, mappings, target }) => {
-          // Ricalcoliamo il piano: tra il mostrare e il confermare il catalogo
-          // puo' essere cambiato, e un doppio apply non deve duplicare varianti.
+        execute: safe(async ({ importId, channelSlug, target }) => {
+          const entry = getProductsImport(importId);
+          if (!entry.mappingsConfirmed || !entry.mappings?.length) {
+            return { error: "Conferma i nomi sulla card prima di applicare." };
+          }
           const plan = await planDaneaImport(target, { importId, channelSlug });
-          return applyDaneaPlan(target, { channelSlug, groups: plan.groups, mappings });
+          const result = await applyDaneaPlan(target, {
+            channelSlug,
+            groups: plan.groups,
+            mappings: entry.mappings,
+          });
+          saveCreatedSlugs(importId, result.createdProducts);
+          return result;
+        }),
+      }),
+      add_to_portals: tool({
+        description:
+          "Aggiunge prodotti gia' creati a portali scuola scelti (checkbox). Mai tutti i portali. Serve conferma.",
+        parameters: z.object({
+          productSlugs: z.array(z.string()).min(1),
+          portalSlugs: z.array(z.string()).min(1),
+          confirm: z.literal(true),
+          target: TARGET,
+        }),
+        execute: safe(async ({ productSlugs, portalSlugs, target }) => {
+          return addProductsToPortals({ productSlugs, portalSlugs, target });
         }),
       }),
       plan_prices: tool({

@@ -7,6 +7,9 @@ import {
   variantName,
 } from "@/features/commesso/danea-parse.js";
 import { buildDaneaPlan } from "@/features/commesso/danea-plan.js";
+import { aggregatorsSkippedWithoutMapping } from "@/features/commesso/danea-apply.js";
+import type { DaneaPlanGroup } from "@/features/commesso/danea-plan.js";
+import { isAppleSku, matchSkuFromFilename } from "@/features/commesso/danea-sku.js";
 
 const XML = `<?xml version="1.0"?>
 <EasyfattProducts>
@@ -116,5 +119,47 @@ describe("piano import Danea", () => {
     const block = "<TotalWithoutTax>335.25</TotalWithoutTax><Total>409</Total>";
     expect(getTag(block, "Total")).toBe("409");
     expect(getTag(block, "Number")).toBe("");
+  });
+});
+
+describe("match foto per Codice Danea", () => {
+  const skus = ["MD3Y4TY/A", "CoverONE"];
+
+  it("accetta underscore al posto dello slash Apple", () => {
+    expect(matchSkuFromFilename("MD3Y4TY_A.jpg", skus)).toBe("MD3Y4TY/A");
+    expect(matchSkuFromFilename("MD3Y4TY/A/01.jpg", skus)).toBe("MD3Y4TY/A");
+    expect(matchSkuFromFilename("CoverONE-2.png", skus)).toBe("CoverONE");
+  });
+
+  it("non indovina i file orfani", () => {
+    expect(matchSkuFromFilename("random.jpg", skus)).toBeNull();
+  });
+
+  it("riconosce i part number Apple", () => {
+    expect(isAppleSku("MD3Y4TY/A")).toBe(true);
+    expect(isAppleSku("CoverONE")).toBe(false);
+  });
+});
+
+describe("apply senza mapping", () => {
+  it("salta il gruppo se manca il mapping", () => {
+    const groups = [
+      {
+        aggregator: "IPAD-A16",
+        newVariants: [{ sku: "MXYZ2ZM/A" }],
+      },
+    ] as DaneaPlanGroup[];
+    expect(aggregatorsSkippedWithoutMapping(groups, [])).toEqual(["IPAD-A16"]);
+    expect(
+      aggregatorsSkippedWithoutMapping(groups, [
+        {
+          aggregator: "IPAD-A16",
+          productName: "iPad",
+          slug: "ipad",
+          productTypeId: "t",
+          categorySlug: "tablet",
+        },
+      ]),
+    ).toEqual([]);
   });
 });

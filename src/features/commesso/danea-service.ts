@@ -4,13 +4,13 @@ import { buildDaneaPlan, type DaneaPlan, type ExistingVariant } from "./danea-pl
 import { getProductsImport } from "./danea-uploads.js";
 import { listProducts } from "./reads.js";
 
-// Il catalogo intero in una query: un file Danea porta decine di codici e
-// cercarli uno a uno sarebbe una query admin per SKU.
+// Catalogo intero (paginato a 100: Saleor non accetta first > 100). Un file
+// Danea porta decine di codici; cercarli uno a uno sarebbe una query per SKU.
 async function existingVariants(
   target: SaleorTarget,
   channelSlug: string,
 ): Promise<ExistingVariant[]> {
-  const products = await listProducts(target, { limit: 200 });
+  const products = await listProducts(target, { limit: 500 });
   return products.flatMap((p) =>
     p.variants
       .filter((v) => v.sku)

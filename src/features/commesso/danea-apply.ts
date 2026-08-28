@@ -46,6 +46,16 @@ async function productIdFor(
   return created.id;
 }
 
+export function aggregatorsSkippedWithoutMapping(
+  groups: DaneaPlanGroup[],
+  mappings: GroupMapping[],
+): string[] {
+  const byAggregator = new Map(mappings.map((m) => [m.aggregator, m]));
+  return groups
+    .filter((g) => g.newVariants.length > 0 && !byAggregator.has(g.aggregator))
+    .map((g) => g.aggregator);
+}
+
 export async function applyDaneaPlan(
   target: SaleorTarget,
   args: {
