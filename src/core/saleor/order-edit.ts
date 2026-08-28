@@ -61,6 +61,7 @@ export interface EditLine {
   colorName: string; // nome colore acquistato (originale), es. "Grigio siderale"
   colorOptions: ColorOption[]; // varianti sorelle stessa capacita', colore diverso
   requestedColor: string; // colore richiesto via annotazione (kyron_line_colors), o ""
+  imageUrl: string | null; // thumbnail Saleor del prodotto, null se senza foto
 }
 
 // Modalita' di editing riga:
@@ -89,6 +90,7 @@ const ORDER_EDIT_QUERY = `
         productName
         variantName
         quantity
+        thumbnail(size: 128) { url }
         variant {
           id
           sku
@@ -109,6 +111,7 @@ interface OrderEditNode {
     productName: string;
     variantName: string;
     quantity: number;
+    thumbnail: { url: string } | null;
     variant: {
       id: string;
       sku: string | null;
@@ -196,6 +199,7 @@ export async function fetchOrderForEdit(orderId: string): Promise<OrderEdit> {
       colorName: color?.name ?? "",
       colorOptions,
       requestedColor: changes.find((c) => c.sku === sku)?.to ?? "",
+      imageUrl: l.thumbnail?.url ?? null,
     });
   }
   return {

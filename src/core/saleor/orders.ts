@@ -10,6 +10,7 @@ export interface OrderLine {
   name: string; // productName Saleor
   quantity: number;
   totalGross: number;
+  imageUrl: string | null; // thumbnail Saleor del prodotto, null se senza foto
 }
 
 // Brain: decision-019 — cambio colore "annotazione" su ordini gia' confermati.
@@ -134,6 +135,7 @@ export interface OrderNode {
     productSku: string | null;
     quantity: number;
     totalPrice: { gross: { amount: number } };
+    thumbnail: { url: string } | null;
   }>;
 }
 
@@ -166,6 +168,7 @@ const ORDERS_QUERY = `
             productSku
             quantity
             totalPrice { gross { amount } }
+            thumbnail(size: 128) { url }
           }
         }
       }
@@ -285,6 +288,7 @@ function mapOrder(n: OrderNode): OrderSummary {
       name: l.productName,
       quantity: l.quantity,
       totalGross: l.totalPrice.gross.amount,
+      imageUrl: l.thumbnail?.url ?? null,
     })),
   };
 }
