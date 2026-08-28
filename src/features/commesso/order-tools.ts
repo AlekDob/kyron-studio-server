@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   fetchOrderByNumber,
   fetchOrdersForRange,
+  setOrderMeta,
   type OrderSummary,
 } from "@/core/saleor/orders.js";
 import { buildPortalIndex, enrichOrder, type PortalMeta } from "@/features/orders/enrich.js";
@@ -14,6 +15,10 @@ import { isWorkflowStatus, setWorkflowStatus, WORKFLOW_STATUSES } from "@/featur
 import type { EnrichedOrder } from "@/features/orders/enrich.js";
 import { listForOrder } from "@/features/orders/email-log.js";
 import { safe } from "./tool-safe.js";
+
+// Le sezioni della scheda ordine nel pannello (studio: orders-filter.ts).
+// L'agente puo' portare l'operatore direttamente su quella giusta.
+const ORDER_TAB = z.enum(["cliente", "pagamento", "prodotti", "note"]);
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "formato YYYY-MM-DD");
 
@@ -128,9 +133,12 @@ export const orderTools = {
 
   get_order: tool({
     description:
-      "Dettaglio di un ordine dal suo numero visibile (es. \"326\"): righe, cliente, pagamento, comunicazioni gia' inviate. Il pannello apre la scheda da solo.",
-    parameters: z.object({ number: z.string().describe("numero ordine, es. 326") }),
-    execute: safe(async ({ number }) => {
+      "Dettaglio di un ordine dal suo numero visibile (es. \"326\"): righe, cliente, pagamento, comunicazioni gia' inviate. Il pannello apre la scheda da solo. Con `tab` la apre gia' sulla sezione giusta.",
+    parameters: z.object({
+      number: z.string().describe("numero ordine, es. 326"),
+      tab: ORDER_TAB.optional().describe("sezione da mostrare nella scheda"),
+    }),
+    execute: safe(async ({ number, tab }) => {
       const order = await fetchOrderByNumber(number);
       if (!order) return { found: false as const, number };
       const index = await portalIndex();
@@ -148,8 +156,43 @@ export const orderTools = {
             customer: enriched.customerName || enriched.companyName,
             portalName: enriched.portalName,
             totalGross: enriched.totalGross,
+            tab,
           },
           id: `order_${enriched.number}`,
+        },
+      };
+    }),
+  }),
+
+  add_order_note: tool({
+    description:
+      "Aggiunge una riga alla nota interna dell'ordine (visibile in Studio e nelle FootNotes dell'export Danea). Non manda niente al cliente. Non cancella quello che c'e' gia': accoda.",
+    parameters: z.object({
+      number: z.string().describe("numero ordine visibile, es. 326"),
+      note: z.string().min(1).max(500).describe("riga da aggiungere, gia' scritta per un collega"),
+    }),
+    execute: safe(async ({ number, note }) => {
+      const order = await fetchOrderByNumber(number);
+      if (!order) return { found: false as const, number };
+      // Accoda: la nota e' un campo unico condiviso con l'operatore, sovra-
+      // scriverla perderebbe quello che ha scritto lui.
+      const next = order.note ? `${order.note}\n${note}` : note;
+      await setOrderMeta(order.id, "kyron_note", next);
+      return {
+        found: true as const,
+        number: order.number,
+        note: next,
+        _ui: {
+          component: "OrdersReceipt",
+          props: {
+            kind: "order",
+            number: order.number,
+            customer: order.customerName || order.companyName,
+            totalGross: order.totalGross,
+            tab: "note",
+            refresh: true,
+          },
+          id: `order_note_${order.number}`,
         },
       };
     }),
