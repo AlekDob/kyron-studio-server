@@ -8,6 +8,28 @@ tags: [orders, saleor, gateway, portals, commerciali]
 
 # Feature 008 — API ordini per il modulo Ordini di Studio
 
+> **Update 2026-08-28 — motore di query generico, filtri lato server**: `GET
+> /api/v1/orders` accetta ora `status`, `q` e `spec` (una query JSON validata zod)
+> oltre a `portal`/`agent`. Nuovo `src/core/query/spec.ts`: condizioni `{field, op,
+> value}` combinate in `all` (AND) / `any` (OR) + `sort` opzionale, valutate su una
+> `FieldMap` per dominio — zero dipendenze dal dominio ordini, pensato per essere
+> riusato da Prodotti quando servirà. `src/features/orders/query-fields.ts` è la
+> `FieldMap` degli ordini (24 campi: `totale`, `data`, `prodotti` = SKU+nomi riga
+> concatenati, `metodoPagamento`, ecc.) e **la sola** `statusBucketOf` del progetto
+> (prima ne esistevano tre copie divergenti: route, tool di Nico, pannello Studio —
+> quando divergevano il conteggio in chat non tornava coi KPI in pagina).
+> La risposta ora porta anche `buckets` (conteggio+euro per stato, calcolati su
+> tutto tranne lo stato — sono i bottoni di navigazione) e `portals`/`agents`
+> (opzioni dei select, dall'intero periodo, non dal set filtrato).
+> `list_orders` (agente Nico) prende `{from, to, spec}`: compone lui la query
+> strutturata invece dei quattro filtri fissi di prima. Esempi nella description
+> del tool: "sopra 600 euro non confermati di r.russo", "con un iPad pagati con
+> Carta del Docente". Cache di processo 60s su `fetchOrdersForRange` (TTL,
+> invalidata da `setOrderMeta`/`markOrderAsPaid`): senza, ogni cambio filtro
+> riscaricava l'intero range da Saleor. Test: `tests/core/query-spec.test.ts`
+> (AND/OR, confronto numerico, `contains` case-insensitive, campo sconosciuto →
+> throw, `sort`). Lato frontend: studio feature 010.
+
 > **Update 2026-07-21 (validato in prod + 2 fix)**: validato su un ordine DRAFT
 > throwaway in produzione, attraverso l'endpoint reale (mint cookie `kyron-rev` +
 > chiamata HTTP da dentro il container). Due bug trovati e corretti prima del

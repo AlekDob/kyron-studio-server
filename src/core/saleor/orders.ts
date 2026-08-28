@@ -383,6 +383,7 @@ export async function setOrderMeta(
   };
   const err = json.errors?.[0] ?? json.data?.updateMetadata.errors?.[0];
   if (err) throw new Error(`updateMetadata: ${err.message}`);
+  invalidateOrdersCache();
 }
 
 // Legge un metadata pubblico dell'ordine (stringa; vuota se assente). Usato per
@@ -428,6 +429,7 @@ export async function markOrderAsPaid(orderId: string): Promise<void> {
   };
   const err = json.errors?.[0] ?? json.data?.orderMarkAsPaid.errors?.[0];
   if (err) throw new Error(`orderMarkAsPaid: ${err.message}`);
+  invalidateOrdersCache();
 }
 
 export async function fetchOrderHeader(orderId: string): Promise<OrderHeader> {
@@ -492,11 +494,28 @@ export async function fetchOrdersForDay(date: string): Promise<OrderSummary[]> {
   return fetchOrders(date, date);
 }
 
+// Cache di range: il pannello Ordini rifa' la chiamata a ogni cambio di filtro
+// e scaricare 500 ordini da Saleor a ogni tasto e' insensato. 60s bastano: un
+// ordine appena entrato si vede al refresh dopo.
+// ponytail: cache di processo. Se studio-server va a piu' istanze, va su Redis.
+const RANGE_TTL_MS = 60_000;
+const rangeCache = new Map<string, { at: number; orders: OrderSummary[] }>();
+
 // Tutti gli ordini creati nell'intervallo [from, to] (YYYY-MM-DD inclusivo).
 // `created` e' un DateRangeInput (solo data), filtro per giorno UTC.
 export async function fetchOrdersForRange(
   from: string,
   to: string,
 ): Promise<OrderSummary[]> {
-  return fetchOrders(from, to);
+  const key = `${from}|${to}`;
+  const hit = rangeCache.get(key);
+  if (hit && Date.now() - hit.at < RANGE_TTL_MS) return hit.orders;
+  const orders = await fetchOrders(from, to);
+  rangeCache.set(key, { at: Date.now(), orders });
+  return orders;
+}
+
+/** Invalida la cache: da chiamare dopo una scrittura sugli ordini. */
+export function invalidateOrdersCache(): void {
+  rangeCache.clear();
 }

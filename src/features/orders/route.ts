@@ -9,9 +9,10 @@ import { sendDdtTestMail } from "./ddt-mailing.js";
 import {
   buildPortalIndex,
   enrichOrder,
-  type EnrichedOrder,
   type PortalMeta,
 } from "./enrich.js";
+import { querySpecSchema, type QuerySpec } from "@/core/query/spec.js";
+import { bucketTotals, filterOptions, filterOrders } from "./query-fields.js";
 import {
   setWorkflowStatus,
   isWorkflowStatus,
@@ -43,6 +44,11 @@ const querySchema = z.object({
   to: dateSchema,
   portal: z.string().optional(),
   agent: z.string().optional(),
+  status: z.string().optional(),
+  q: z.string().optional(),
+  // Query ricca composta da Nico (JSON urlencoded). Il pannello la rimanda
+  // indietro cosi' com'e': e' lui a tenerla nell'URL.
+  spec: z.string().optional(),
 });
 
 // Email degli ordini di test interni, esclusi dalla vista (riusa la stessa env
@@ -64,11 +70,16 @@ function isoDaysAgo(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Match agente: confronto case-insensitive su email completa o local-part.
-function matchesAgent(order: EnrichedOrder, agent: string): boolean {
-  const a = agent.toLowerCase();
-  const email = order.agent.toLowerCase();
-  return email === a || email.split("@")[0] === a;
+// Spec JSON dalla query string. "invalid" (non throw) cosi' il chiamante
+// risponde 400 invece di 502: un filtro storto e' colpa di chi chiama.
+function parseSpec(raw: string | undefined): QuerySpec | undefined | "invalid" {
+  if (!raw) return undefined;
+  try {
+    const parsed = querySpecSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : "invalid";
+  } catch {
+    return "invalid";
+  }
 }
 
 ordersRoute.get("/", async (c) => {
@@ -76,9 +87,11 @@ ordersRoute.get("/", async (c) => {
   if (!parsed.success) {
     return c.json({ error: "invalid_query" }, 400);
   }
-  const { from, to, portal, agent } = parsed.data;
+  const { from, to, portal, agent, status, q, spec: rawSpec } = parsed.data;
   const fromDate = from ?? isoDaysAgo(30);
   const toDate = to ?? isoDaysAgo(0);
+  const spec = parseSpec(rawSpec);
+  if (spec === "invalid") return c.json({ error: "invalid_spec" }, 400);
   try {
     // L'arricchimento portali (Payload) non deve far cadere la lista ordini:
     // se Payload non e' raggiungibile, si degrada a indice vuoto (agente/cod.
@@ -90,17 +103,20 @@ ordersRoute.get("/", async (c) => {
       console.warn("[orders] portal index unavailable, continuing:", String(e));
     }
     const exclude = excludedEmails();
-    let orders = (await fetchOrdersForRange(fromDate, toDate))
+    const all = (await fetchOrdersForRange(fromDate, toDate))
       .filter((o) => !exclude.includes(o.userEmail.toLowerCase()))
       .map((o) => enrichOrder(o, index));
-    if (portal) orders = orders.filter((o) => o.channelSlug === portal);
-    if (agent) orders = orders.filter((o) => matchesAgent(o, agent));
-    const totalGross = orders.reduce((sum, o) => sum + o.totalGross, 0);
+    // I KPI si contano PRIMA di applicare lo stato: cliccando "Confermati"
+    // l'operatore deve continuare a vedere quanti sono gli altri.
+    const scoped = filterOrders(all, { portal, agent, q }, spec);
+    const orders = filterOrders(scoped, { status });
     return c.json({
       from: fromDate,
       to: toDate,
       count: orders.length,
-      totalGross,
+      totalGross: orders.reduce((sum, o) => sum + o.totalGross, 0),
+      buckets: bucketTotals(scoped),
+      ...filterOptions(all),
       orders,
     });
   } catch (err) {

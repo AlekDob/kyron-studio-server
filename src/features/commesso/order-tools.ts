@@ -10,9 +10,14 @@ import {
   type OrderSummary,
 } from "@/core/saleor/orders.js";
 import { buildPortalIndex, enrichOrder, type PortalMeta } from "@/features/orders/enrich.js";
+import { querySpecSchema } from "@/core/query/spec.js";
+import {
+  bucketTotals,
+  filterOrders,
+  ORDER_FIELD_NAMES,
+} from "@/features/orders/query-fields.js";
 import { excludedEmails } from "./sales.js";
 import { isWorkflowStatus, setWorkflowStatus, WORKFLOW_STATUSES } from "@/features/orders/status.js";
-import type { EnrichedOrder } from "@/features/orders/enrich.js";
 import { listForOrder } from "@/features/orders/email-log.js";
 import { safe } from "./tool-safe.js";
 
@@ -21,36 +26,6 @@ import { safe } from "./tool-safe.js";
 const ORDER_TAB = z.enum(["cliente", "pagamento", "prodotti", "note"]);
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "formato YYYY-MM-DD");
-
-// Il pannello Ordini mostra tre stati, non i cinque della lavorazione: il tool
-// puo' esprimere solo quello che il pannello sa disegnare, altrimenti la
-// ricevuta in chat conta righe che in pagina non si vedono.
-const STATUS_BUCKET = z.enum(["all", "da-confermare", "confermati", "annullati"]);
-type StatusBucket = z.infer<typeof STATUS_BUCKET>;
-
-// Copia della statusBucketOf del client (studio/src/components/orders/orders-filter.ts).
-// Stessa priorita': annullato -> bozza -> confermato. Se divergono, il conteggio
-// della ricevuta e quello dei KPI in pagina non tornano.
-function statusBucketOf(o: EnrichedOrder): Exclude<StatusBucket, "all"> {
-  if (o.workflowStatus === "annullato" || o.status === "CANCELED") return "annullati";
-  if (o.status === "UNCONFIRMED" || o.status === "DRAFT") return "da-confermare";
-  return "confermati";
-}
-
-// Local-part dell'email agente: e' l'etichetta che si vede nel select in pagina.
-function agentLabel(email: string): string {
-  return email ? email.split("@")[0] : "";
-}
-
-// Ricerca libera sugli stessi campi della barra di ricerca del pannello.
-function matchesQuery(o: EnrichedOrder, q: string): boolean {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return true;
-  return [
-    o.number, o.customerName, o.companyName, o.userEmail,
-    o.customerPhone, o.fiscalCode, o.vatNumber, o.sdiCode, o.pspReference,
-  ].join(" ").toLowerCase().includes(needle);
-}
 
 // Il contesto del modello non regge le righe di 500 ordini: in lista si manda
 // solo l'intestazione. Le righe si vedono con get_order.
@@ -77,32 +52,36 @@ async function loadOrders(from: string, to: string): Promise<OrderSummary[]> {
 
 export const orderTools = {
   list_orders: tool({
-    description:
-      "Filtra la lista ordini del pannello a fianco e ne torna il conteggio. La lista in pagina si riallinea da sola: NON ripetere le righe in chat. Senza righe complete: per quelle usa get_order.",
+    description: [
+      "Filtra la lista ordini del pannello a fianco e ne torna il conteggio.",
+      "La lista in pagina si riallinea da sola: NON ripetere le righe in chat.",
+      "Il filtro si compone con `spec`: `all` = condizioni in AND, `any` = in OR.",
+      `Campi: ${ORDER_FIELD_NAMES.join(", ")}.`,
+      'Operatori: eq, ne, gt, gte, lt, lte, contains, in, between, empty, notEmpty.',
+      'Valori di `stato`: confermati | da-confermare | annullati.',
+      'Valori di `metodoPagamento`: card | bank-transfer | teacher-card.',
+      'Esempio "sopra 600 euro non confermati di r.russo": all=[{totale,gte,600},{stato,eq,"da-confermare"},{agente,eq,"r.russo"}].',
+      'Esempio "con un iPad pagati con Carta del Docente": all=[{prodotti,contains,"ipad"},{metodoPagamento,eq,"teacher-card"}].',
+      "Per le righe complete di un ordine usa get_order.",
+    ].join(" "),
     parameters: z.object({
       from: DATE.describe("data inizio inclusa"),
       to: DATE.describe("data fine inclusa"),
-      status: STATUS_BUCKET.optional().describe("stato mostrato in pagina"),
-      portalSlug: z.string().optional().describe("slug del portale scuola"),
-      agent: z.string().optional().describe("agente commerciale, nome o email"),
-      q: z.string().optional().describe("ricerca libera: numero ordine, cliente, transazione"),
+      spec: querySpecSchema
+        .optional()
+        .describe("filtro strutturato; ometti per vedere tutto il periodo"),
     }),
-    execute: safe(async ({ from, to, status, portalSlug, agent, q }) => {
+    execute: safe(async ({ from, to, spec }) => {
       const index = await portalIndex();
-      let orders = (await loadOrders(from, to)).map((o) => enrichOrder(o, index));
-      if (portalSlug) orders = orders.filter((o) => o.channelSlug === portalSlug);
-      // L'agente puo' arrivare come "Ravelli" o come email intera: normalizziamo
-      // sulla local-part, che e' quella che il pannello mette nel select.
-      const agentKey = agent ? agentLabel(agent).toLowerCase() : "";
-      if (agentKey) orders = orders.filter((o) => agentLabel(o.agent).toLowerCase() === agentKey);
-      if (status && status !== "all") orders = orders.filter((o) => statusBucketOf(o) === status);
-      if (q) orders = orders.filter((o) => matchesQuery(o, q));
-      const resolvedAgent = agentKey ? (agentLabel(orders[0]?.agent ?? "") || agentKey) : "all";
+      const all = (await loadOrders(from, to)).map((o) => enrichOrder(o, index));
+      const orders = filterOrders(all, {}, spec);
+      const totalGross = orders.reduce((s, o) => s + o.totalGross, 0);
       return {
         from,
         to,
         count: orders.length,
-        totalGross: orders.reduce((s, o) => s + o.totalGross, 0),
+        totalGross,
+        buckets: bucketTotals(orders),
         // ponytail: 40 righe al modello, il resto lo mostra il pannello.
         orders: orders.slice(0, 40).map(slimOrder),
         _ui: {
@@ -110,14 +89,16 @@ export const orderTools = {
           props: {
             kind: "filter",
             filter: {
-              from, to,
-              portal: portalSlug ?? "all",
-              agent: resolvedAgent,
-              status: status ?? "all",
-              query: q ?? "",
+              from,
+              to,
+              portal: "all",
+              agent: "all",
+              status: "all",
+              query: "",
+              spec: spec ?? null,
             },
             count: orders.length,
-            totalGross: orders.reduce((s, o) => s + o.totalGross, 0),
+            totalGross,
           },
           id: `orders_${Date.now()}`,
         },
