@@ -27,6 +27,7 @@ import {
   setOrderTotal,
 } from "@/core/saleor/order-edit.js";
 import { setLineColor } from "./line-color.js";
+import { notifyVatReliefAmount } from "./vat-relief-notify.js";
 
 // GET /api/v1/orders?from=YYYY-MM-DD&to=YYYY-MM-DD&portal=slug&agent=email
 // Vista situazione ordini per i commerciali (feature 008). Accesso: tutti gli
@@ -274,7 +275,15 @@ ordersRoute.patch("/payment-total", async (c) => {
   }
   try {
     const result = await setOrderTotal(parsed.data.id, parsed.data.amount);
-    return c.json({ ok: true, ...result });
+    // Feature 002: se l'ordine ha l'IVA agevolata approvata, il cliente riceve il
+    // nuovo importo. Best-effort: la mail non deve far fallire l'allineamento.
+    let emailed = false;
+    try {
+      emailed = await notifyVatReliefAmount(parsed.data.id, parsed.data.amount);
+    } catch (e) {
+      console.warn("[payment-total] vat relief email failed:", String(e));
+    }
+    return c.json({ ok: true, ...result, emailed });
   } catch (err) {
     const msg = String(err);
     if (msg.includes("order locked")) return c.json({ error: "order_locked" }, 409);
