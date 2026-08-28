@@ -109,6 +109,56 @@ export function getProductsImport(id: string): StoredProductsImport {
   return entry;
 }
 
+function latestOf<K extends StoredImport["kind"]>(
+  kind: K,
+): Extract<StoredImport, { kind: K }> | null {
+  purge();
+  let best: Extract<StoredImport, { kind: K }> | null = null;
+  for (const entry of store.values()) {
+    if (entry.kind !== kind) continue;
+    const typed = entry as Extract<StoredImport, { kind: K }>;
+    if (!best || typed.expiresAt > best.expiresAt) best = typed;
+  }
+  return best;
+}
+
+export function importIdFromChat(text: string): string | undefined {
+  const fromContext = text.match(/importId "([^"]+)"/);
+  if (fromContext?.[1]) return fromContext[1];
+  try {
+    const parsed = JSON.parse(text) as { component?: string; data?: { id?: string } };
+    if (
+      parsed.component === "DaneaUploader" &&
+      typeof parsed.data?.id === "string" &&
+      parsed.data.id.startsWith("dan_")
+    ) {
+      return parsed.data.id;
+    }
+  } catch {
+    /* non e' il JSON della card */
+  }
+  return undefined;
+}
+
+/** Id dal tool, altrimenti dal testo chat, altrimenti l'ultimo listino in memoria. */
+export function resolveProductsImport(
+  id: string | undefined,
+  chatTexts: string[] = [],
+): StoredProductsImport {
+  purge();
+  const candidates = [
+    id,
+    ...chatTexts.map(importIdFromChat).reverse(),
+  ].filter((v): v is string => Boolean(v));
+  for (const candidate of candidates) {
+    const hit = store.get(candidate);
+    if (hit?.kind === "products") return hit;
+  }
+  const latest = latestOf("products");
+  if (latest) return latest;
+  throw new Error("Import scaduto o non trovato: ricarica il file Danea.");
+}
+
 export function saveProductMappings(
   id: string,
   mappings: import("./danea-apply.js").GroupMapping[],

@@ -9,6 +9,7 @@ import {
 import { buildDaneaPlan } from "@/features/commesso/danea-plan.js";
 import { aggregatorsSkippedWithoutMapping } from "@/features/commesso/danea-apply.js";
 import type { DaneaPlanGroup } from "@/features/commesso/danea-plan.js";
+import { importIdFromChat, putDaneaImport, resolveProductsImport } from "@/features/commesso/danea-uploads.js";
 import { isAppleSku, matchSkuFromFilename } from "@/features/commesso/danea-sku.js";
 
 const XML = `<?xml version="1.0"?>
@@ -161,5 +162,22 @@ describe("apply senza mapping", () => {
         },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("resolve import Danea", () => {
+  it("estrae dan_ dal contesto UI, non dal nome file", () => {
+    expect(
+      importIdFromChat(
+        'su shop principale\n\n[Contesto UI: file Danea attivo — importId "dan_abc123xyz"; tipo products; file "EcommProdotti (7).xml"]',
+      ),
+    ).toBe("dan_abc123xyz");
+    expect(importIdFromChat("Ho caricato EcommProdotti (7).xml: 53 righe, 35 gruppi")).toBeUndefined();
+  });
+
+  it("se l'id del tool e' sbagliato usa l'ultimo listino in memoria", () => {
+    const stored = putDaneaImport("EcommProdotti.xml", XML);
+    const resolved = resolveProductsImport("EcommProdotti (7).xml", []);
+    expect(resolved.id).toBe(stored.id);
   });
 });

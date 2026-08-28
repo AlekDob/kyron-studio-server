@@ -16,7 +16,7 @@ import { planDaneaImport } from "./danea-service.js";
 import { applyDaneaPlan } from "./danea-apply.js";
 import type { DaneaPlan } from "./danea-plan.js";
 import { addProductsToPortals } from "./danea-portals.js";
-import { getProductsImport, saveCreatedSlugs } from "./danea-uploads.js";
+import { resolveProductsImport, saveCreatedSlugs } from "./danea-uploads.js";
 import { applyPricePlan, resolveChannelId } from "./price-writes.js";
 import { runPriceGuard } from "@/features/price-guard/check.js";
 import { resolvePortal } from "@/features/portals/reader.js";
@@ -256,19 +256,26 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
         description:
           "Confronta il file Danea caricato col catalogo: cosa e' nuovo, quali prezzi cambierebbero, cosa e' invariato. NON scrive niente.",
         parameters: z.object({
-          importId: z.string().describe("id restituito dall'uploader"),
+          importId: z
+            .string()
+            .optional()
+            .describe("id dan_... della card; se manca si usa l'ultimo file in memoria"),
           channelSlug: z.string().describe("canale su cui confrontare i prezzi"),
           target: TARGET,
         }),
         execute: safe(async ({ importId, channelSlug, target }) => {
-          const plan = await planDaneaImport(target, { importId, channelSlug });
+          const entry = resolveProductsImport(
+            importId,
+            opts.messages.map((m) => m.content),
+          );
+          const plan = await planDaneaImport(target, { importId: entry.id, channelSlug });
           return {
             target,
-            importId,
+            importId: entry.id,
             plan,
             _ui: {
               component: "DaneaImportPlan",
-              props: { target, importId, plan },
+              props: { target, importId: entry.id, plan },
               id: `daneaplan_${Date.now()}`,
             },
           };
@@ -294,23 +301,26 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
         description:
           "Crea i prodotti e le varianti NUOVE. I mapping stanno sulla card (gia' confermati). NON inventare mappings. Nascono non pubblicati.",
         parameters: z.object({
-          importId: z.string(),
+          importId: z.string().optional(),
           channelSlug: z.string(),
           confirm: z.literal(true),
           target: TARGET,
         }),
         execute: safe(async ({ importId, channelSlug, target }) => {
-          const entry = getProductsImport(importId);
+          const entry = resolveProductsImport(
+            importId,
+            opts.messages.map((m) => m.content),
+          );
           if (!entry.mappingsConfirmed || !entry.mappings?.length) {
             return { error: "Conferma i nomi sulla card prima di applicare." };
           }
-          const plan = await planDaneaImport(target, { importId, channelSlug });
+          const plan = await planDaneaImport(target, { importId: entry.id, channelSlug });
           const result = await applyDaneaPlan(target, {
             channelSlug,
             groups: plan.groups,
             mappings: entry.mappings,
           });
-          saveCreatedSlugs(importId, result.createdProducts);
+          saveCreatedSlugs(entry.id, result.createdProducts);
           return result;
         }),
       }),
