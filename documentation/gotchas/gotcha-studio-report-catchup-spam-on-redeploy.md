@@ -46,3 +46,11 @@ Perche' il container studio-server viene ridistribuito cosi' spesso? Guardare la
 deployment history su Coolify (app uuid `x5bzjhuxbl4ab4j5tnkbckq0`): probabile
 health-check fallito o auto-deploy. La fix rende lo spam innocuo, ma il redeploy
 loop e' uno spreco da chiudere comunque.
+
+## Aggiornamento 2026-08-28
+
+La finestra di 35' non bastava: 3 redeploy di studio-server tra le 08:58 e le 09:18
+hanno mandato 3 volte il report Controllo prezzi. Il container non ha volumi, quindi
+nemmeno un file marcatore sopravvive al deploy. Ora `armDailyJob` guarda l'ora di boot:
+se il processo nasce dopo l'orario target segna la giornata come gia' fatta e non
+recupera. Il report salta solo se il container era giu' esattamente al minuto target.
