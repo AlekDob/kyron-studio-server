@@ -115,6 +115,22 @@ export function parseVariantAttrs(description: string): {
   };
 }
 
+/** Titolo prodotto: descrizione Danea, o il prefisso comune se ci sono piu' tagli. */
+export function productTitleFromDescriptions(names: string[]): string {
+  const cleaned = names.map((n) => n.trim()).filter(Boolean);
+  if (cleaned.length === 0) return "";
+  if (cleaned.length === 1) return cleaned[0];
+  let prefix = cleaned[0];
+  for (const n of cleaned.slice(1)) {
+    let i = 0;
+    const max = Math.min(prefix.length, n.length);
+    while (i < max && prefix[i].toLowerCase() === n[i].toLowerCase()) i += 1;
+    prefix = prefix.slice(0, i);
+  }
+  prefix = prefix.replace(/[\s\-/]+$/u, "").trim();
+  return prefix.length >= 8 ? prefix : cleaned[0];
+}
+
 export function slugify(input: string): string {
   return input
     .toLowerCase()

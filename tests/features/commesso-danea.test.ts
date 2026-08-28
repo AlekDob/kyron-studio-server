@@ -4,6 +4,7 @@ import {
   groupByAggregator,
   parseDaneaXml,
   parseVariantAttrs,
+  productTitleFromDescriptions,
   variantName,
 } from "@/features/commesso/danea-parse.js";
 import { buildDaneaPlan } from "@/features/commesso/danea-plan.js";
@@ -71,6 +72,18 @@ describe("parser Danea", () => {
     // Senza capacita' ne' colore riconoscibile il nome cade sul codice.
     expect(variantName(parseDaneaXml(XML)[2])).toBe("SUYD2ZM/A");
   });
+
+  it("usa Description come titolo, non il codice", () => {
+    expect(productTitleFromDescriptions(["Apple iPad Air Wi-Fi M4 256GB - Space Grey"])).toBe(
+      "Apple iPad Air Wi-Fi M4 256GB - Space Grey",
+    );
+    expect(
+      productTitleFromDescriptions([
+        "Apple iPad A16 Wi-Fi 128GB - Blue",
+        "Apple iPad A16 Wi-Fi 256GB - Pink",
+      ]),
+    ).toBe("Apple iPad A16 Wi-Fi");
+  });
 });
 
 describe("piano import Danea", () => {
@@ -78,6 +91,7 @@ describe("piano import Danea", () => {
 
   it("tutto nuovo se il catalogo e' vuoto", () => {
     const plan = buildDaneaPlan({ channelSlug: "default-channel", groups, existing: [] });
+    expect(plan.groups.find((g) => g.aggregator === "IPAD-A16")?.suggestedName).toBe("iPad A16");
     expect(plan.totals).toMatchObject({
       newProducts: 2,
       newVariants: 3,

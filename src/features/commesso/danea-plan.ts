@@ -4,7 +4,7 @@
 // che nasce ora non e' dentro nessun kit), un prezzo che CAMBIA no — quello
 // passa dal piano prezzi, che sa dei voucher dei kit (R1).
 import type { DaneaGroup, DaneaRecord } from "./danea-parse.js";
-import { slugify, variantName } from "./danea-parse.js";
+import { productTitleFromDescriptions, slugify, variantName } from "./danea-parse.js";
 
 export interface NewVariant {
   sku: string;
@@ -16,6 +16,8 @@ export interface DaneaPlanGroup {
   /** Slug proposto per il prodotto (nome definitivo lo decide l'utente). */
   slug: string;
   aggregator: string;
+  /** Titolo da <Description> Danea (o prefisso comune del gruppo). */
+  suggestedName: string;
   subcategory: string;
   /** true = il prodotto non esiste ancora su Saleor. */
   isNew: boolean;
@@ -75,9 +77,11 @@ function planGroup(
     );
   }
 
+  const suggestedName = productTitleFromDescriptions(group.records.map((r) => r.name));
   return {
-    slug: [...existingSlugs][0] ?? slugify(group.aggregator),
+    slug: [...existingSlugs][0] ?? slugify(suggestedName || group.aggregator),
     aggregator: group.aggregator,
+    suggestedName: suggestedName || group.aggregator,
     subcategory: group.subcategory,
     isNew: existingSlugs.size === 0,
     newVariants,

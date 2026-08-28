@@ -291,7 +291,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
                     "plan" in r
                       ? (r.plan as DaneaPlan).groups
                           .filter((g) => g.newVariants.length > 0)
-                          .map((g) => g.aggregator)
+                          .map((g) => ({ aggregator: g.aggregator, suggestedName: g.suggestedName }))
                       : [],
                   note: "I nomi si confermano sulla card, non in questo risultato.",
                 },
