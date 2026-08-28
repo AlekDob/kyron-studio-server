@@ -145,6 +145,27 @@ export function narrowProductToChannel(p: ProductRow, channelSlug: string): Prod
   };
 }
 
+function normChannel(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/** 'orsoline' → orsoline-san-carlo. Un hit solo. Zero o tanti → candidates. */
+export function resolveChannelSlug(
+  query: string,
+  channels: Array<{ slug: string; name: string }>,
+): { slug: string } | { candidates: Array<{ slug: string; name: string }> } {
+  const q = query.trim();
+  if (!q) return { candidates: [] };
+  const exact = channels.find((c) => c.slug.toLowerCase() === q.toLowerCase());
+  if (exact) return { slug: exact.slug };
+  const nq = normChannel(q);
+  const hits = channels.filter(
+    (c) => normChannel(c.slug).includes(nq) || normChannel(c.name).includes(nq),
+  );
+  if (hits.length === 1) return { slug: hits[0].slug };
+  return { candidates: hits };
+}
+
 /**
  * Saleor rifiuta `first` > 100 su ogni connection ("Limit of 100 exceeded").
  * Le pagine oltre la prima si prendono con `after`. Chiedere 200 in un colpo

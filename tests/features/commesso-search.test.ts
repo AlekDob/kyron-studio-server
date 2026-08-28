@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesSearch, nextSaleorPageSize, productOnChannel, narrowProductToChannel } from "@/features/commesso/reads.js";
+import { matchesSearch, nextSaleorPageSize, productOnChannel, narrowProductToChannel, resolveChannelSlug } from "@/features/commesso/reads.js";
 import type { ProductRow } from "@/features/commesso/reads.js";
 
 // Il caso vero che si e' rotto in produzione: la ricerca di Saleor tornava zero
@@ -127,6 +127,34 @@ describe("narrowProductToChannel", () => {
     expect(slim.channels).toEqual(["orsoline-san-carlo"]);
     expect(slim.variants[0].channels).toEqual([
       { channelSlug: "orsoline-san-carlo", priceEur: 509, published: true },
+    ]);
+  });
+});
+
+const channels = [
+  { slug: "default-channel", name: "Default" },
+  { slug: "orsoline-san-carlo", name: "Orsoline di San Carlo" },
+  { slug: "ic-massari-galilei", name: "IC Massari Galilei" },
+  { slug: "massari-bis", name: "Altra Massari" },
+];
+
+describe("resolveChannelSlug", () => {
+  it("trasforma orsoline nello slug vero", () => {
+    expect(resolveChannelSlug("orsoline", channels)).toEqual({ slug: "orsoline-san-carlo" });
+  });
+
+  it("accetta lo slug esatto", () => {
+    expect(resolveChannelSlug("orsoline-san-carlo", channels)).toEqual({
+      slug: "orsoline-san-carlo",
+    });
+  });
+
+  it("con due massari non indovina", () => {
+    const out = resolveChannelSlug("massari", channels);
+    expect("candidates" in out).toBe(true);
+    if ("candidates" in out) expect(out.candidates.map((c) => c.slug)).toEqual([
+      "ic-massari-galilei",
+      "massari-bis",
     ]);
   });
 });

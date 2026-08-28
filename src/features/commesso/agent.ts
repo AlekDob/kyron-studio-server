@@ -10,7 +10,7 @@ import { COMMESSO_SYSTEM_PROMPT } from "./prompt.js";
 import { safe } from "./tool-safe.js";
 import { orderTools } from "./order-tools.js";
 import { ddtTools } from "./ddt-tools.js";
-import { getCatalogMeta, getProduct, listProducts, narrowProductToChannel, type ProductRow } from "./reads.js";
+import { getCatalogMeta, getChannelDirectory, getProduct, listProducts, narrowProductToChannel, resolveChannelSlug, type ProductRow } from "./reads.js";
 import { planPrices } from "./plan-service.js";
 import { planDaneaImport } from "./danea-service.js";
 import { applyDaneaPlan } from "./danea-apply.js";
@@ -83,12 +83,30 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           channelSlug: z
             .string()
             .optional()
-            .describe("slug del portale o default-channel; assente = tutto il catalogo"),
+            .describe("slug o nome scuola (es. orsoline); il tool lo risolve"),
           target: TARGET,
         }),
         execute: safe(async ({ search, channelSlug, target }) => {
-          const products = await listProducts(target, { search, channelSlug });
-          return { count: products.length, products, channelSlug: channelSlug ?? null };
+          let slug = channelSlug?.trim() || undefined;
+          if (slug) {
+            const resolved = resolveChannelSlug(slug, await getChannelDirectory(target));
+            if ("slug" in resolved) {
+              slug = resolved.slug;
+            } else {
+              const names = resolved.candidates.map((c) => c.slug);
+              return {
+                count: 0,
+                products: [],
+                channelSlug: null,
+                error:
+                  names.length === 0
+                    ? `Canale "${channelSlug}" non trovato.`
+                    : `Canale ambiguo, scegli uno slug: ${names.join(", ")}`,
+              };
+            }
+          }
+          const products = await listProducts(target, { search, channelSlug: slug });
+          return { count: products.length, products, channelSlug: slug ?? null };
         }),
         experimental_toToolResultContent: (r) =>
           asText(
@@ -96,6 +114,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
               ? {
                   count: r.count,
                   channelSlug: r.channelSlug,
+                  ...("error" in r && r.error ? { error: r.error } : {}),
                   products: r.products.map((p: ProductRow) =>
                     slim(r.channelSlug ? narrowProductToChannel(p, r.channelSlug) : p),
                   ),

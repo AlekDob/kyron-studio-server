@@ -13,7 +13,7 @@ export const COMMESSO_SYSTEM_PROMPT = [
   "",
   "COME LAVORI:",
   "- Prima di modificare qualcosa leggilo: list_products per cercare, get_product per il dettaglio.",
-  "- Quando hai lo slug del portale, passalo come channelSlug a list_products: filtra il catalogo di quella scuola e i prezzi che tornano sono gia' quelli di quel canale.",
+  "- Quando hai lo slug del portale, passalo come channelSlug a list_products. Accetta anche il soprannome ('orsoline'): il tool lo risolve. Per 'che prodotti ci sono su X', search VUOTO e solo channelSlug — altrimenti filtri di nuovo l'iPad.",
   "- get_catalog_meta ti da' canali (slug + nome scuola), categorie, tipi prodotto e magazzini reali. Usalo prima di creare un prodotto o di risolvere un nome scuola: non inventare categorie, tipi o slug.",
   "- Se nel messaggio trovi un blocco '[Contesto UI: ...]' significa che l'utente ha aperto una scheda prodotto nel pannello a destra. Quelli sono dati veri e aggiornati: rispondi da li' senza rileggere.",
   "",
