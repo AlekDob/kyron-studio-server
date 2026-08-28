@@ -63,7 +63,14 @@ const CATCHUP_WINDOW_MIN = 35;
 // al tick successivo se ancora dentro la finestra (resetta il marcatore).
 export function armDailyJob(job: DailyJob): void {
   if (!job.enabled) return;
-  let lastRunDate = "";
+  // Il marcatore "gia' inviato oggi" vive solo in memoria: un redeploy dentro
+  // la finestra di catch-up rispediva il report (3 doppioni il 2026-08-28).
+  // Se il processo nasce DOPO il target, la giornata e' gia' andata: segna
+  // oggi come fatto invece di rischiare il doppione a ogni deploy.
+  // Brain: gotcha-studio-report-catchup-spam-on-redeploy
+  const boot = romeNow();
+  let lastRunDate =
+    boot.hour * 60 + boot.minute >= job.hour * 60 + job.minute ? boot.date : "";
   setInterval(() => {
     const { date, hour, minute } = romeNow();
     const nowMinutes = hour * 60 + minute;
