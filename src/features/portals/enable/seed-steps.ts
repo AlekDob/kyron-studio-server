@@ -19,6 +19,7 @@ const CAPACITY_ATTR = "capacita";
 export interface VariantRef {
   id: string;
   sku: string;
+  name: string; // es. "Apple iPad A16 128GB Blu" — serve ai report leggibili
   attributes: Array<{
     attribute: { slug: string };
     values: Array<{ slug: string }>;
@@ -30,6 +31,7 @@ export interface VariantRef {
 export interface ProductRef {
   id: string;
   slug: string;
+  name: string;
   variants: VariantRef[];
 }
 
@@ -54,9 +56,11 @@ export async function fetchProduct(
     product: {
       id: string;
       slug: string;
+      name: string;
       variants: Array<{
         id: string;
         sku: string;
+        name: string;
         attributes: VariantRef["attributes"];
         pricing: {
           price: { gross: { amount: number } };
@@ -68,9 +72,9 @@ export async function fetchProduct(
     target,
     `query ($slug: String!, $channel: String!) {
       product(slug: $slug, channel: $channel) {
-        id slug
+        id slug name
         variants {
-          id sku
+          id sku name
           attributes { attribute { slug } values { slug } }
           pricing { price { gross { amount } } priceUndiscounted { gross { amount } } }
         }
@@ -82,9 +86,11 @@ export async function fetchProduct(
   const ref: ProductRef = {
     id: data.product.id,
     slug: data.product.slug,
+    name: data.product.name,
     variants: data.product.variants.map((v) => ({
       id: v.id,
       sku: v.sku,
+      name: v.name,
       attributes: v.attributes,
       priceAmount: v.pricing?.price.gross.amount ?? 0,
       undiscountedAmount:
