@@ -25,8 +25,8 @@ const LABELS: Record<string, { title: string; hint: string }> = {
     hint: "Il kit non ha lo sconto: il cliente pagherebbe la somma dei pezzi.",
   },
   "component-missing": {
-    title: "Componente kit non trovato",
-    hint: "Un pezzo del kit non esiste su Saleor: verifica lo SKU.",
+    title: "Kit con codici prodotto sbagliati",
+    hint: "Il codice scritto nel kit non corrisponde a nessun prodotto a catalogo: il prezzo del kit non è stato controllato.",
   },
   "discount-vanished": {
     title: "Sconto sparito su Saleor",

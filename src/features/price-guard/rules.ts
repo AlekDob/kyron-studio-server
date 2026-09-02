@@ -6,6 +6,8 @@
 //   channel-orphan     -> channel-orphan
 //   stale-variant      -> stale-variant-buyable
 import { EUR_TOL, type Anomaly, type PortalContext } from "./check.js";
+import type { BundleComponentConfig } from "@/features/portals/enable/config.js";
+import type { ProductRef } from "./reads.js";
 import { voucherCodeFor } from "@/features/portals/enable/seed-steps.js";
 import {
   fetchProduct,
@@ -38,7 +40,7 @@ async function reconcileBundle(
     const product = await fetchProduct(ctx.target, comp.productSlug, ctx.channel, ctx.cache);
     const variant = product ? resolveVariant(product, comp) : null;
     if (!variant) {
-      missing.push(comp.productSlug);
+      missing.push(describeMissing(comp, product));
       continue;
     }
     sum += variant.priceAmount; // prezzo scontato sul channel scuola
@@ -46,6 +48,21 @@ async function reconcileBundle(
   const code = voucherCodeFor(ctx.config.slug, bundle.slug);
   const voucher = await readVoucherDiscount(ctx.target, ctx.channel, code);
   return { sum: round2(sum), voucher, missing };
+}
+
+// Spiega IN ITALIANO perche' un pezzo del kit non si aggancia a Saleor, con
+// il codice scritto nel kit accanto a quello vero. Senza questo il report
+// elencava solo slug ("coverone, dbp01-a35ri") e nessuno capiva cosa fare.
+function describeMissing(comp: BundleComponentConfig, product: ProductRef | null): string {
+  const written = comp.selection.kind === "fixed" ? comp.selection.variantSku : comp.productSlug;
+  if (!product) return `"${comp.productSlug}" — nessun prodotto con questo codice a catalogo`;
+  const skus = product.variants.map((v) => v.sku).filter(Boolean);
+  if (skus.length === 1) {
+    return `${product.name} — nel kit c'è "${written}", il codice giusto è "${skus[0]}"`;
+  }
+  const first = product.variants[0];
+  const example = first ? ` (es. "${first.sku}" = ${first.name})` : "";
+  return `${product.name} — nel kit c'è "${written}", che non è nessuna delle ${skus.length} versioni a catalogo${example}`;
 }
 
 // REGOLA 1 — riconciliazione kit: (somma scontati - voucher) deve == prezzo mostrato.
@@ -61,7 +78,7 @@ const kitReconciliation: Rule = {
           type: "component-missing",
           severity: "medium",
           kit: bundle.slug,
-          detail: `Componenti non risolti su Saleor (SKU errato o prodotto assente): ${missing.join(", ")}. Verifica il campo variantSku del kit: spesso contiene lo slug del prodotto invece dello SKU.`,
+          detail: `Questi pezzi del kit non si trovano a catalogo: ${missing.join(" · ")}. Finché non li sistemi, il prezzo di questo kit non viene controllato.`,
         });
         // Senza tutti i componenti la somma e' incompleta: riconciliare darebbe
         // uno scarto inventato (es. "scontati 0€ − voucher"). Il problema da

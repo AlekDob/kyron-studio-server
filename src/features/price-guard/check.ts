@@ -9,12 +9,14 @@ import {
 } from "@/features/portals/reader.js";
 import {
   toEnableConfig,
+  type BundleConfig,
   type EnablePortalConfig,
 } from "@/features/portals/enable/config.js";
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { romeYesterday } from "@/core/scheduler.js";
 import type { ProductRef } from "./reads.js";
 import { RULES, type Rule } from "./rules.js";
+import { fetchStaticBundles } from "./static-bundles.js";
 
 // Il check gira SOLO su prod: i prezzi staging derivano (portal-enable-staging-price-drift).
 export const CHECK_TARGET: SaleorTarget = "prod";
@@ -50,12 +52,20 @@ export interface PortalContext {
   ordersFrom: string;
 }
 
-function buildContext(portal: PortalDetail, ordersFrom: string): PortalContext {
+function buildContext(
+  portal: PortalDetail,
+  ordersFrom: string,
+  staticBundles?: BundleConfig[],
+): PortalContext {
+  const config = toEnableConfig(portal);
+  // Tenant con kit statici: sono quelli serviti dallo storefront, i kit Payload
+  // dello stesso tenant sono cloni morti. Vedi static-bundles.ts.
+  if (staticBundles?.length) config.bundles = staticBundles;
   return {
     target: CHECK_TARGET,
     channel: portal.slug,
     portal,
-    config: toEnableConfig(portal),
+    config,
     cache: new Map(),
     ordersFrom,
   };
@@ -110,9 +120,10 @@ export async function runPriceGuard(opts: RunOptions = {}): Promise<Anomaly[]> {
   const portals = await portalsToCheck(opts.portalSlug);
   const rules = enabledRules(opts.rules);
   const ordersFrom = opts.ordersFrom ?? romeYesterday().date;
+  const staticBundles = await fetchStaticBundles();
   const out: Anomaly[] = [];
   for (const portal of portals) {
-    const ctx = buildContext(portal, ordersFrom);
+    const ctx = buildContext(portal, ordersFrom, staticBundles.get(portal.slug));
     for (const rule of rules) {
       try {
         out.push(...(await rule.run(ctx)));
