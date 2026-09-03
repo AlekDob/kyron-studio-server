@@ -7,11 +7,12 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { safe } from "@/features/commesso/tool-safe.js";
-import { LINEAR_LABELS } from "@/core/linear/client.js";
+import { LINEAR_LABELS, URGENCY, URGENCY_KEYS } from "@/core/linear/client.js";
 import { createRequest, listRequests, type RequestRow } from "./service.js";
 
 const LABEL = z.enum(["Bug", "Feature", "Improvement", "Article"]);
 const STATE = z.enum(["todo", "backlog"]);
+const URGENCY_ENUM = z.enum(["bloccante", "alta", "media", "bassa"]);
 const GROUP = z.enum(["all", "todo", "doing", "done"]);
 
 /** In chat va l'intestazione: la descrizione intera riempirebbe il contesto. */
@@ -20,6 +21,7 @@ const slim = (r: RequestRow) => ({
   title: r.title,
   state: r.state,
   labels: r.labels,
+  urgency: r.urgency,
   requestedBy: r.requestedBy,
 });
 
@@ -81,21 +83,23 @@ export function requestTools(userEmail: string) {
         "Chiamalo appena hai capito il problema: la bozza si legge nella card, non in chat.",
         `Label ammesse: ${LINEAR_LABELS.join(", ")}.`,
         "Stato: todo se blocca il lavoro adesso, backlog se puo' aspettare.",
+        `Urgenza (chiedila SEMPRE, non deciderla da solo): ${URGENCY_KEYS.join(", ")}.`,
       ].join(" "),
       parameters: z.object({
         title: z.string().min(5).max(120).describe("frase corta e concreta"),
         description: z
           .string()
           .min(10)
-          .describe("cosa succede, cosa dovrebbe succedere, come ripeterlo, quanto e' urgente"),
+          .describe("cosa succede, cosa dovrebbe succedere, come ripeterlo"),
         label: LABEL,
         state: STATE,
+        urgency: URGENCY_ENUM.describe("quanto e' urgente, secondo chi l'ha chiesta"),
       }),
       execute: safe(async (draft) => ({
         draft,
         _ui: {
           component: "RequestDraft",
-          props: { ...draft, requestedBy: userEmail },
+          props: { ...draft, urgencyLabel: URGENCY[draft.urgency].label, requestedBy: userEmail },
           id: `draft_${Date.now()}`,
         },
       })),
@@ -103,7 +107,7 @@ export function requestTools(userEmail: string) {
 
     create_request: tool({
       description: [
-        "Apre il ticket su Linear davvero, nel progetto Kyron e assegnato ad Alek.",
+        "Apre il ticket su Linear davvero, nel progetto Kyron e assegnato ad Alek, e manda la mail ad Alek.",
         "Chiamalo SOLO dopo che l'utente ha confermato la bozza. Senza confirm: true non fa niente.",
       ].join(" "),
       parameters: z.object({
@@ -111,6 +115,7 @@ export function requestTools(userEmail: string) {
         description: z.string().min(10),
         label: LABEL,
         state: STATE,
+        urgency: URGENCY_ENUM.describe("la stessa urgenza della bozza confermata"),
         confirm: z.boolean().describe("true solo se l'utente ha confermato la bozza"),
       }),
       execute: safe(async ({ confirm, ...input }) => {

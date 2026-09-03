@@ -157,6 +157,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `DDT_MAIL_ENABLED` | `true` arma l'invio delle comunicazioni ai clienti dai DDT Danea. Senza, `send_ddt_mailing` rifiuta (feature 019) |
 | `DDT_MAIL_ALLOW` | CSV allowlist destinatari comunicazioni DDT: piena = solo quegli indirizzi, vuota = tutti |
 | `LINEAR_API_KEY` | personal API key Linear per il modulo Richieste (feature 022). Va nella key NUDA in Authorization, senza `Bearer`. Senza, il modulo risponde "non configurata" |
+| `REQUESTS_NOTIFY_TO` | CSV destinatari della mail a ogni richiesta aperta (default `gmail@alekdob.com`) — feature 022 |
 | `ORDERS_SHIP_NOTIFY_ALLOW` | CSV allowlist destinatari mail "spedito": se valorizzata invia SOLO a quegli indirizzi (test), se vuota invia a tutti (go-live). PROD ora = `gmail@alekdob.com` |
 
 ## Knowledge base
@@ -170,7 +171,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - `documentation/features/007-orders-report.md` — report email ordini giornaliero 09:30 (Saleor prod, per portale, SKU+descrizione, esclude test) — riusa core/email + core/scheduler
 - Comunicazioni DDT + ordini dentro Nico, `src/features/commesso/{order-tools,ddt-tools}.ts` + `src/features/orders/{ddt-match,ddt-mailing,ddt-mail-template,email-log}.ts`. Doc unica in `../studio/documentation/features/019-ddt-comms.md`
 - Modulo Clienti (Bea), `src/features/customers/`: cliente = chi ha ordinato (derivato dagli ordini, identita' = email, finestra 365gg), tool di lettura + note + segmenti + mail con il motore condiviso `core/email/campaign.ts`. Doc unica in `../studio/documentation/features/021-customers-module.md`
-- Modulo Richieste (Ivo), `src/features/requests/` + `src/core/linear/client.ts`: i ticket vivono su Linear (progetto Kyron), nessuna copia locale. Tre tool: `list_requests` (muove il pannello), `draft_request` (propone, non scrive), `create_request` (scrive solo con `confirm: true`). Doc unica in `../studio/documentation/features/022-requests-module.md`
+- Modulo Richieste (Ivo), `src/features/requests/` + `src/core/linear/client.ts`: i ticket vivono su Linear (progetto Kyron), nessuna copia locale. Tre tool: `list_requests` (muove il pannello), `draft_request` (propone, non scrive), `create_request` (scrive solo con `confirm: true`, setta l'urgenza come `priority` Linear e manda la mail via `core/email/mailer`). Doc unica in `../studio/documentation/features/022-requests-module.md`
 - `documentation/features/008-orders-api.md` — `GET /api/v1/orders` lista ordini Saleor (range date) arricchiti con agente/cod. meccanografico/link portale (join channelSlug==slug) — backend del modulo Ordini Studio (feature 010)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`

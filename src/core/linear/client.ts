@@ -26,6 +26,27 @@ export const LINEAR = {
   },
 } as const;
 
+/**
+ * L'urgenza. Linear la tiene come numero (0 = nessuna, 1 = Urgent ... 4 = Low)
+ * e i suoi nomi sono in inglese: qui si dicono in italiano, una volta sola, e
+ * la traduzione vale per l'agente, la scheda e la mail.
+ */
+export const URGENCY = {
+  bloccante: { value: 1, label: "Blocca il lavoro" },
+  alta: { value: 2, label: "Alta" },
+  media: { value: 3, label: "Media" },
+  bassa: { value: 4, label: "Bassa" },
+} as const;
+
+export type Urgency = keyof typeof URGENCY;
+
+export const URGENCY_KEYS = Object.keys(URGENCY) as Urgency[];
+
+/** Il numero di Linear torna parola italiana. 0 (nessuna priorita') = "media". */
+export function urgencyFromPriority(priority: number): Urgency {
+  return URGENCY_KEYS.find((k) => URGENCY[k].value === priority) ?? "media";
+}
+
 export type LinearLabel = keyof typeof LINEAR.labels;
 export type LinearState = keyof typeof LINEAR.states;
 

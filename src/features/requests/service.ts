@@ -1,6 +1,15 @@
 // Lettura e scrittura dei ticket del progetto Kyron su Linear (feature 022).
 // Unico punto che tocca la rete: i tool e la route passano di qui.
-import { LINEAR, linearQuery, type LinearLabel, type LinearState } from "@/core/linear/client.js";
+import {
+  LINEAR,
+  URGENCY,
+  linearQuery,
+  urgencyFromPriority,
+  type LinearLabel,
+  type LinearState,
+  type Urgency,
+} from "@/core/linear/client.js";
+import { notifyNewRequest } from "./notify.js";
 
 /** Riga della lista: e' quello che vede il pannello a sinistra. */
 export interface RequestRow {
@@ -16,6 +25,8 @@ export interface RequestRow {
   /** Gruppo per i chip del pannello. */
   group: RequestGroup;
   labels: string[];
+  /** Quanto e' urgente, in parole (la `priority` di Linear tradotta). */
+  urgency: Urgency;
   /** Email di chi ha chiesto, dalla riga "Richiesto da:" in fondo. */
   requestedBy: string;
   createdAt: string;
@@ -34,7 +45,7 @@ const LIST_QUERY = `
       orderBy: updatedAt
     ) {
       nodes {
-        id identifier title description url createdAt updatedAt
+        id identifier title description url createdAt updatedAt priority
         state { name type color }
         labels { nodes { name } }
       }
@@ -59,6 +70,7 @@ interface RawIssue {
   url: string;
   createdAt: string;
   updatedAt: string;
+  priority: number;
   state: { name: string; type: string; color: string } | null;
   labels: { nodes: Array<{ name: string }> } | null;
 }
@@ -97,6 +109,7 @@ const toRow = (i: RawIssue): RequestRow => {
     stateColor: i.state?.color ?? "#8a8f98",
     group: groupOf(i.state?.type),
     labels: (i.labels?.nodes ?? []).map((l) => l.name),
+    urgency: urgencyFromPriority(i.priority),
     requestedBy: requesterOf(description),
     createdAt: i.createdAt,
     updatedAt: i.updatedAt,
@@ -115,6 +128,7 @@ export interface CreateRequestInput {
   description: string;
   label: LinearLabel;
   state: LinearState;
+  urgency: Urgency;
   requestedBy: string;
 }
 
@@ -132,6 +146,7 @@ export async function createRequest(input: CreateRequestInput): Promise<{
       projectId: LINEAR.projectId,
       assigneeId: LINEAR.assigneeId,
       stateId: LINEAR.states[input.state],
+      priority: URGENCY[input.urgency].value,
       labelIds: [LINEAR.labels[input.label]],
       title: input.title,
       description,
@@ -139,5 +154,10 @@ export async function createRequest(input: CreateRequestInput): Promise<{
   });
   const issue = data.issueCreate.issue;
   if (!data.issueCreate.success || !issue) throw new Error("Linear non ha creato il ticket");
+  // La mail e' un avviso, non parte del lavoro: se Resend e' giu' il ticket
+  // resta aperto lo stesso e il collega non vede un errore che non lo riguarda.
+  await notifyNewRequest({ ...issue, ...input }).catch((err) => {
+    console.warn("[requests] mail non partita:", String(err));
+  });
   return issue;
 }
