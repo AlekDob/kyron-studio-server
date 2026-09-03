@@ -17,6 +17,10 @@ import { armDailyReport } from "@/features/analytics/report.js";
 import { ordersReportRoute } from "@/features/orders-report/route.js";
 import { armDailyOrdersReport } from "@/features/orders-report/report.js";
 import { ordersRoute } from "@/features/orders/route.js";
+import { customersRoute } from "@/features/customers/route.js";
+import { customersAgentRoute } from "@/features/customers/agent-route.js";
+import { requestsRoute } from "@/features/requests/route.js";
+import { requestsAgentRoute } from "@/features/requests/agent-route.js";
 import { priceGuardRoute } from "@/features/price-guard/route.js";
 import { commessoRoute } from "@/features/commesso/route.js";
 import { commessoRestRoute } from "@/features/commesso/rest.js";
@@ -73,7 +77,11 @@ app.route("/api/v1/orders", ordersRoute);
 app.route("/api/v1/price-guard", priceGuardRoute);
 app.route("/api/v1/vat-relief", vatReliefRoute);
 app.route("/agents/commesso", commessoRoute);
+app.route("/agents/customers", customersAgentRoute);
+app.route("/agents/requests", requestsAgentRoute);
 app.route("/api/v1/products", commessoRestRoute);
+app.route("/api/v1/customers", customersRoute);
+app.route("/api/v1/requests", requestsRoute);
 
 // Report analytics giornaliero via email (opt-in: ANALYTICS_REPORT_ENABLED).
 armDailyReport();

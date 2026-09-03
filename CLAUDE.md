@@ -90,6 +90,7 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /agents/stats                     → SSE agent Statistiche (Ada): HogQL sola lettura su PostHog (studio feature 017)
 /agents/commesso                  → SSE agent Commesso (Kevin): catalogo prodotti + prezzi Saleor prod, ADMIN-ONLY (studio feature 018)
 /api/v1/products                  → lista/dettaglio prodotti + POST /import/upload (file Danea) — feature 018
+/api/v1/products/import/history   → storico import Danea (collection Payload `danea-imports`) — feature 018
 /settings                         → AI provider config + model routing (ADMIN-ONLY, feature 008)
 /api/v1/collections               → BFF gateway Payload (X-Tenant + kyron-rev cookie) — feature 001
 /api/v1/collections/:slug         → list records
@@ -107,6 +108,13 @@ In parallelo: `cd Kyron/cms && npm run dev` (Payload su :3000, serve per il gate
 /api/v1/orders/vat-override (PATCH) → override IVA ordine (kyron_vat_override), annotazione per Danea — feature 008
 /api/v1/orders/edit (GET) + /api/v1/orders/line (POST) → editing reale righe (qty/colore) SOLO ordini UNCONFIRMED, money-path — feature 008
 /api/v1/orders/comms (GET)        → comunicazioni gia' inviate al cliente di un ordine (registro email-log) — feature 019
+/agents/customers                 → SSE agent Clienti (Bea): vista clienti derivata dagli ordini + mail (studio feature 021)
+/api/v1/customers                 → lista clienti derivata dagli ordini (range date + portale/agente/gruppo/spec) — feature 021
+/api/v1/customers/:email          → scheda cliente: riga, suoi ordini, comunicazioni, nota interna — feature 021
+/api/v1/customers/note (PATCH)    → accoda una riga alla nota interna del cliente (Payload customer-notes) — feature 021
+/api/v1/customers/segments        → GET/POST/DELETE segmenti clienti salvati (Payload customer-segments) — feature 021
+/agents/requests                  → SSE agent Richieste (Ivo): raccoglie le richieste del team e apre i ticket su Linear (studio feature 022)
+/api/v1/requests                  → lista ticket del progetto Kyron da Linear — feature 022
 /api/v1/orders/line-color (POST) → cambio colore come ANNOTAZIONE su ordini confermati non spediti (metadata kyron_line_colors, decision-019); no money-path, visibile Studio + area cliente + Danea
 ```
 
@@ -148,6 +156,7 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 | `META_AD_ACCOUNT_ID` | id account pubblicitario Meta, con o senza prefisso `act_` |
 | `DDT_MAIL_ENABLED` | `true` arma l'invio delle comunicazioni ai clienti dai DDT Danea. Senza, `send_ddt_mailing` rifiuta (feature 019) |
 | `DDT_MAIL_ALLOW` | CSV allowlist destinatari comunicazioni DDT: piena = solo quegli indirizzi, vuota = tutti |
+| `LINEAR_API_KEY` | personal API key Linear per il modulo Richieste (feature 022). Va nella key NUDA in Authorization, senza `Bearer`. Senza, il modulo risponde "non configurata" |
 | `ORDERS_SHIP_NOTIFY_ALLOW` | CSV allowlist destinatari mail "spedito": se valorizzata invia SOLO a quegli indirizzi (test), se vuota invia a tutti (go-live). PROD ora = `gmail@alekdob.com` |
 
 ## Knowledge base
@@ -160,6 +169,8 @@ Il cookie `kyron-rev` e' condiviso cross-subdomain (`.kyronedu.it`). Il segreto 
 - Agente Commesso (Kevin), `src/features/commesso/`: letture catalogo admin API, scritture prodotto/variante/giacenza, piano prezzi in due passaggi con guardia kit (R1) e drift detection, import listino Danea. Doc unica in `../studio/documentation/features/018-commesso-module.md`
 - `documentation/features/007-orders-report.md` — report email ordini giornaliero 09:30 (Saleor prod, per portale, SKU+descrizione, esclude test) — riusa core/email + core/scheduler
 - Comunicazioni DDT + ordini dentro Nico, `src/features/commesso/{order-tools,ddt-tools}.ts` + `src/features/orders/{ddt-match,ddt-mailing,ddt-mail-template,email-log}.ts`. Doc unica in `../studio/documentation/features/019-ddt-comms.md`
+- Modulo Clienti (Bea), `src/features/customers/`: cliente = chi ha ordinato (derivato dagli ordini, identita' = email, finestra 365gg), tool di lettura + note + segmenti + mail con il motore condiviso `core/email/campaign.ts`. Doc unica in `../studio/documentation/features/021-customers-module.md`
+- Modulo Richieste (Ivo), `src/features/requests/` + `src/core/linear/client.ts`: i ticket vivono su Linear (progetto Kyron), nessuna copia locale. Tre tool: `list_requests` (muove il pannello), `draft_request` (propone, non scrive), `create_request` (scrive solo con `confirm: true`). Doc unica in `../studio/documentation/features/022-requests-module.md`
 - `documentation/features/008-orders-api.md` — `GET /api/v1/orders` lista ordini Saleor (range date) arricchiti con agente/cod. meccanografico/link portale (join channelSlug==slug) — backend del modulo Ordini Studio (feature 010)
 - Decision-014: `Kyron/documentation/decisions/decision-014-studio-bff-gateway.md`
 - Workstream 02: `Kyron/documentation/workstreams/02-studio-agentic-data-layer.md`
