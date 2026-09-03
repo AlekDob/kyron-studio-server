@@ -7,6 +7,7 @@
 //
 // Regola: se Payload non risponde, NON si invia. Fallire chiuso, mai aperto.
 import { getPortalsGateway } from "@/features/portals/gateway.js";
+import { sendKyronEmail } from "@/core/email/mailer.js";
 
 export const EMAIL_LOG_COLLECTION = "email-log";
 
@@ -75,6 +76,76 @@ export async function listForOrder(orderNumber: string): Promise<Record<string, 
     limit: 50,
     sort: "-sentAt",
     where: { orderNumber: { equals: orderNumber } },
+  });
+  return res.data;
+}
+
+/** Testo leggibile dall'HTML della mail: nel drawer serve il contenuto, non il markup. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(head|style|script)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<br\s*\/?>|<\/(p|tr|div|h\d)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;|&zwnj;/g, " ")
+    .replace(/&egrave;/g, "e")
+    .replace(/&amp;/g, "&")
+    .replace(/&[a-z]+;/gi, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+/**
+ * Manda una mail legata a un ordine e la registra nel log, cosi' la scheda
+ * ordine mostra TUTTE le comunicazioni partite e non solo le campagne massive.
+ *
+ * Niente lock qui: l'anti-doppio-invio di queste mail sta gia' sui metadata
+ * dell'ordine Saleor, quindi `docKey` porta il timestamp e ogni invio e' una
+ * riga sua. Il log e' best-effort: una riga persa non fa fallire l'invio.
+ */
+export async function sendAndLog(input: {
+  campaign: string;
+  orderNumber: string;
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  await sendKyronEmail(input.subject, input.html, [input.to]);
+  await recordSent({ ...input, body: htmlToText(input.html) });
+}
+
+/** Registra una mail gia' inviata (usata anche dalle mail interne dello storefront). */
+export async function recordSent(input: {
+  campaign: string;
+  orderNumber: string;
+  to: string;
+  subject: string;
+  body: string;
+}): Promise<void> {
+  const docKey = `${input.orderNumber}:${Date.now()}`;
+  try {
+    await getPortalsGateway().create(EMAIL_LOG_COLLECTION, {
+      key: logKey(input.campaign, docKey),
+      campaign: input.campaign,
+      docKey,
+      email: input.to,
+      orderNumber: input.orderNumber,
+      subject: input.subject,
+      body: input.body,
+      sentAt: new Date().toISOString(),
+      status: "sent",
+    });
+  } catch (e) {
+    console.warn("[email-log] record failed:", String(e));
+  }
+}
+
+/** Comunicazioni inviate a un indirizzo, per la scheda cliente. */
+export async function listForEmail(email: string): Promise<Record<string, unknown>[]> {
+  const res = await getPortalsGateway().list(EMAIL_LOG_COLLECTION, {
+    limit: 100,
+    sort: "-sentAt",
+    where: { email: { equals: email.trim().toLowerCase() } },
   });
   return res.data;
 }

@@ -45,8 +45,19 @@ export async function resolveModel(
       );
     }
     const client = createOpenAI({ apiKey, baseURL });
+    // gpt-5* / o* mandano reasoning_effort di default. Su /v1/chat/completions
+    // (AI SDK 4) gli strumenti vengono rifiutati, es. gpt-5.6-luna + Livia.
+    // OpenAI chiede reasoning_effort=none oppure /v1/responses. Restiamo su
+    // completions e spegniamo il ragionamento: i nostri agenti vivono di tool.
+    const reasoningFamily =
+      modelId.startsWith("gpt-5") || modelId.startsWith("o");
     return {
-      model: client(modelId),
+      model: client(
+        modelId,
+        reasoningFamily
+          ? { reasoningEffort: "none" as "low" }
+          : undefined,
+      ),
       providerId,
       modelId,
       source: routed ? "settings" : "env-fallback",

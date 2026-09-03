@@ -9,7 +9,7 @@ import {
   fetchOrderCoverage,
   markOrderAsPaid,
 } from "@/core/saleor/orders.js";
-import { sendKyronEmail } from "@/core/email/mailer.js";
+import { sendAndLog } from "./email-log.js";
 
 export async function markTeacherCardAcquired(
   orderId: string,
@@ -43,11 +43,13 @@ export async function markTeacherCardAcquired(
     const { number, userEmail, channelName } = await fetchOrderHeader(orderId);
     const to = userEmail.trim();
     if (to) {
-      await sendKyronEmail(
-        `Buono Carta del Docente acquisito — Ordine #${number}`,
-        renderAcquiredEmail(number, channelName),
-        [to],
-      );
+      await sendAndLog({
+        campaign: "carta-docente-acquisita",
+        orderNumber: number,
+        to,
+        subject: `Buono Carta del Docente acquisito — Ordine #${number}`,
+        html: renderAcquiredEmail(number, channelName),
+      });
       emailed = true;
     }
   } catch (e) {

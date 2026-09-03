@@ -15,3 +15,4 @@ data/*.tmp
 
 # fastembed model cache (pinky brain) — mai in git, pesa centinaia di MB
 .fastembed_cache/
+.env.bak*

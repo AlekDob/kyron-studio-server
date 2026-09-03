@@ -8,7 +8,7 @@ import {
   fetchOrderHeader,
   markOrderAsPaid,
 } from "@/core/saleor/orders.js";
-import { sendKyronEmail } from "@/core/email/mailer.js";
+import { sendAndLog } from "./email-log.js";
 
 export async function markBankTransferPaid(
   orderId: string,
@@ -32,11 +32,13 @@ export async function markBankTransferPaid(
     const { number, userEmail, channelName } = await fetchOrderHeader(orderId);
     const to = userEmail.trim();
     if (to) {
-      await sendKyronEmail(
-        `Bonifico ricevuto — Ordine #${number}`,
-        renderPaidEmail(number, channelName),
-        [to],
-      );
+      await sendAndLog({
+        campaign: "bonifico-ricevuto",
+        orderNumber: number,
+        to,
+        subject: `Bonifico ricevuto — Ordine #${number}`,
+        html: renderPaidEmail(number, channelName),
+      });
       emailed = true;
     }
   } catch (e) {
@@ -67,11 +69,13 @@ export async function markResidualBankTransferPaid(
     const { number, userEmail, channelName } = await fetchOrderHeader(orderId);
     const to = userEmail.trim();
     if (to) {
-      await sendKyronEmail(
-        `Bonifico ricevuto — Ordine #${number}`,
-        renderPaidEmail(number, channelName),
-        [to],
-      );
+      await sendAndLog({
+        campaign: "bonifico-ricevuto",
+        orderNumber: number,
+        to,
+        subject: `Bonifico ricevuto — Ordine #${number}`,
+        html: renderPaidEmail(number, channelName),
+      });
       emailed = true;
     }
   } catch (e) {

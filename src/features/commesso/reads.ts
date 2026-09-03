@@ -18,6 +18,8 @@ export interface VariantRow {
   stock: number;
   /** Attributi variante (capacita, colore) come coppie leggibili. */
   attributes: Array<{ name: string; value: string }>;
+  /** Foto legate a questa variante (il colore giusto), non a tutto il prodotto. */
+  images: string[];
   channels: VariantChannelPrice[];
 }
 
@@ -29,6 +31,8 @@ export interface ProductRow {
   productType: string;
   description: string;
   imageUrl: string | null;
+  /** Gallery completa (media Saleor), thumbnail inclusa. Vuota se senza foto. */
+  images: string[];
   channels: string[];
   variants: VariantRow[];
 }
@@ -39,10 +43,12 @@ const PRODUCT_FIELDS = `
   category { name }
   productType { name }
   thumbnail(size: 256) { url }
+  media { url(size: 256) }
   channelListings { channel { slug } isPublished }
   variants {
     id sku name
     quantityAvailable
+    media { url(size: 128) }
     attributes { attribute { name } values { name } }
     channelListings { channel { slug } price { amount } }
   }
@@ -53,6 +59,7 @@ interface RawVariant {
   sku: string | null;
   name: string;
   quantityAvailable: number | null;
+  media: Array<{ url: string }> | null;
   attributes: Array<{ attribute: { name: string }; values: Array<{ name: string }> }>;
   channelListings: Array<{ channel: { slug: string }; price: { amount: number } | null }> | null;
 }
@@ -65,6 +72,7 @@ interface RawProduct {
   category: { name: string } | null;
   productType: { name: string };
   thumbnail: { url: string } | null;
+  media: Array<{ url: string }> | null;
   channelListings: Array<{ channel: { slug: string }; isPublished: boolean }> | null;
   variants: RawVariant[] | null;
 }
@@ -94,6 +102,7 @@ function toVariant(v: RawVariant): VariantRow {
     attributes: v.attributes.flatMap((a) =>
       a.values.map((val) => ({ name: a.attribute.name, value: val.name })),
     ),
+    images: (v.media ?? []).map((m) => m.url),
     channels: (v.channelListings ?? []).map((cl) => ({
       channelSlug: cl.channel.slug,
       priceEur: cl.price?.amount ?? null,
@@ -111,6 +120,7 @@ function toProduct(p: RawProduct): ProductRow {
     productType: p.productType.name,
     description: plainDescription(p.description),
     imageUrl: p.thumbnail?.url ?? null,
+    images: (p.media ?? []).map((m) => m.url),
     channels: (p.channelListings ?? [])
       .filter((cl) => cl.isPublished)
       .map((cl) => cl.channel.slug),

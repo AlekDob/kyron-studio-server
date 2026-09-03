@@ -1,6 +1,7 @@
 // Colla tra l'import in memoria, il catalogo Saleor e il diff puro.
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { buildDaneaPlan, type DaneaPlan, type ExistingVariant } from "./danea-plan.js";
+import { recordDaneaPlan } from "./danea-log.js";
 import { getProductsImport } from "./danea-uploads.js";
 import { listProducts } from "./reads.js";
 
@@ -31,6 +32,16 @@ export async function planDaneaImport(
     channelSlug: args.channelSlug,
     groups: entry.groups,
     existing: await existingVariants(target, args.channelSlug),
+  });
+  // Unico punto in cui passano sia la REST sia i tool dell'agente: il registro
+  // si aggancia qui e copre entrambe le strade. In sottofondo, perche' un log
+  // che non parte non deve far fallire l'import.
+  void recordDaneaPlan({
+    importId: entry.id,
+    filename: entry.filename,
+    recordCount: entry.recordCount,
+    target,
+    plan,
   });
   return { ...plan, filename: entry.filename };
 }

@@ -11,7 +11,7 @@
 //      (metadata kyron_vat_amount_emailed_for) -> doppio click = una mail sola,
 //      correzione dell'importo = nuova mail.
 import { fetchOrderHeader, fetchOrderMeta, setOrderMeta } from "@/core/saleor/orders.js";
-import { sendKyronEmail } from "@/core/email/mailer.js";
+import { sendAndLog } from "./email-log.js";
 
 const VAT_STATUS_META = "kyron_vat_agevolata_status";
 const EMAILED_FOR_META = "kyron_vat_amount_emailed_for";
@@ -47,11 +47,13 @@ export async function notifyVatReliefAmount(
   const to = userEmail.trim();
   if (!to) return false;
 
-  await sendKyronEmail(
-    `Importo aggiornato con IVA 4% — Ordine #${number}`,
-    renderVatReliefEmail(number, channelName, amount),
-    [to],
-  );
+  await sendAndLog({
+    campaign: "iva-4-importo-aggiornato",
+    orderNumber: number,
+    to,
+    subject: `Importo aggiornato con IVA 4% — Ordine #${number}`,
+    html: renderVatReliefEmail(number, channelName, amount),
+  });
   // Scritto solo dopo l'invio riuscito: se Resend fallisce si riprova.
   await setOrderMeta(orderId, EMAILED_FOR_META, key);
   return true;

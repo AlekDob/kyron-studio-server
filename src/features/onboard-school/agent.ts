@@ -22,6 +22,11 @@ import {
 import { enablePortal } from "@/features/portals/enable/enable.js";
 import { notifyPortalLive } from "@/features/portals/enable/notify.js";
 
+// Filtro e tab del pannello Portali: gli stessi valori di `portals-filter.ts`
+// lato studio (una parola sbagliata qui e la ricevuta viene scartata).
+const PORTAL_STATUS = z.enum(["all", "live", "bozze"]);
+const PORTAL_TAB = z.enum(["informazioni", "catalogo", "kit"]);
+
 interface AgentRunOptions {
   tenant: TenantConfig;
   cookie: string;
@@ -329,15 +334,42 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
       list_portals: tool({
         description:
           "Elenca tutti i portali scuola configurati con il loro stato (draft, review, approved, onboarded), citta', numero prodotti e kit. Usa questo tool quando l'utente chiede di vedere i portali esistenti, fare un riepilogo, o analizzare lo stato dei portali.",
-        parameters: z.object({}),
-        execute: async () => {
-          const portals = await listPortals();
+        parameters: z.object({
+          // OpenAI strict: niente .optional() — null = nessun filtro.
+          search: z.string().nullable().describe("testo da cercare nel nome o slug; null o vuoto = tutti"),
+          status: PORTAL_STATUS.nullable().describe("live = pubblicati, bozze = da finire; null = tutti"),
+          city: z.string().nullable().describe("citta' esatta, come appare nei portali; null = tutte"),
+        }),
+        execute: async ({ search, status, city }) => {
+          const all = await listPortals();
+          // Stesso filtro che poi vede l'utente nel pannello: se il tool
+          // rispondesse su tutto e il pannello mostrasse un sottoinsieme, i due
+          // numeri non tornerebbero.
+          const q = (search ?? "").trim().toLowerCase();
+          const portals = all.filter(
+            (p) =>
+              (!q || `${p.nome} ${p.slug} ${p.city}`.toLowerCase().includes(q)) &&
+              (!status ||
+                status === "all" ||
+                (status === "bozze" ? p.status === "draft" : p.status !== "draft")) &&
+              (!city || city === "all" || p.city === city),
+          );
           return {
             portals,
             total: portals.length,
             message: portals.length === 0
-              ? "Nessun portale configurato."
+              ? "Nessun portale trovato."
               : `${portals.length} portali trovati.`,
+            // Il pannello Portali si muove da qui: stesso filtro, una riga sola
+            // in chat (la lista e' gia' a fianco).
+            _ui: {
+              component: "PortalsReceipt",
+              props: {
+                kind: "filter",
+                filter: { query: search ?? "", status: status ?? "all", city: city ?? "all" },
+              },
+              id: `portals_${Date.now()}`,
+            },
           };
         },
       }),
@@ -348,10 +380,28 @@ export async function* runOnboardSchoolAgent(opts: AgentRunOptions) {
           query: z
             .string()
             .describe("slug o nome del portale (fuzzy match case-insensitive)"),
+          tab: PORTAL_TAB.nullable().describe("sezione da aprire nella scheda; null = default"),
         }),
-        execute: async ({ query }) => {
+        execute: async ({ query, tab }) => {
           const { portal, candidates } = await resolvePortal(query);
-          if (portal) return { portal };
+          if (portal) {
+            return {
+              portal,
+              // Il pannello apre la scheda da solo, sul tab giusto.
+              _ui: {
+                component: "PortalsReceipt",
+                props: {
+                  kind: "portal",
+                  slug: portal.slug,
+                  name: portal.nome,
+                  city: portal.city ?? "",
+                  statusLabel: portal.status === "draft" ? "Bozza" : "Live",
+                  tab: tab ?? undefined,
+                },
+                id: `portal_${portal.slug}`,
+              },
+            };
+          }
           if (candidates.length > 1) {
             return {
               error: `Trovati ${candidates.length} portali che corrispondono a "${query}". Specifica meglio.`,

@@ -5,6 +5,12 @@ import { requireAdmin } from "@/middleware/require-admin.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { fetchOrdersForRange } from "@/core/saleor/orders.js";
 import { listForOrder } from "./email-log.js";
+import {
+  listResendEmails,
+  matchesOrder,
+  fetchResendBody,
+  audienceOf,
+} from "./resend-log.js";
 import { sendDdtTestMail } from "./ddt-mailing.js";
 import {
   buildPortalIndex,
@@ -291,15 +297,64 @@ ordersRoute.patch("/payment-total", async (c) => {
   }
 });
 
-// GET /api/v1/orders/comms?number=326 — comunicazioni gia' inviate al cliente
-// di quell'ordine (registro `email-log` su Payload). Sola lettura, per il drawer.
+// GET /api/v1/orders/comms?number=326&email=cliente@x.it — tutte le mail di
+// quell'ordine. Due fonti unite: Resend (storico reale ~30 giorni, con lo stato
+// di consegna) e il registro `email-log` su Payload (che tiene il testo e
+// sopravvive oltre i 30 giorni). Sola lettura, per la scheda ordine.
 ordersRoute.get("/comms", async (c) => {
   const number = c.req.query("number");
+  const email = c.req.query("email") ?? undefined;
   if (!number) return c.json({ error: "invalid_query" }, 400);
+  // Una fonte giu' non deve azzerare l'altra: la scheda mostra quello che c'e'.
+  const [logged, sent] = await Promise.allSettled([
+    listForOrder(number),
+    listResendEmails(),
+  ]);
+  const rows = logged.status === "fulfilled" ? logged.value : [];
+  const mails =
+    sent.status === "fulfilled" ? sent.value.filter((m) => matchesOrder(m, number, email)) : [];
+  if (logged.status === "rejected") console.warn("[comms] email-log:", String(logged.reason));
+  if (sent.status === "rejected") console.warn("[comms] resend:", String(sent.reason));
+
+  // Il testo della mail lo tiene solo il nostro registro: si aggancia per oggetto.
+  const bodyBySubject = new Map(rows.map((r) => [String(r.subject ?? ""), String(r.body ?? "")]));
+  const comms = mails.map((m) => ({
+    id: m.id,
+    campaign: "",
+    subject: m.subject,
+    body: bodyBySubject.get(m.subject) ?? "",
+    sentAt: m.sentAt,
+    to: m.to.join(", "),
+    delivery: m.lastEvent,
+    audience: audienceOf(m.to, email),
+  }));
+  // Righe nostre senza corrispondenza su Resend: piu' vecchie di 30 giorni, o
+  // Resend irraggiungibile. Vanno mostrate lo stesso, senza stato di consegna.
+  const seen = new Set(mails.map((m) => m.subject));
+  for (const r of rows) {
+    if (seen.has(String(r.subject ?? ""))) continue;
+    comms.push({
+      id: "",
+      campaign: String(r.campaign ?? ""),
+      subject: String(r.subject ?? ""),
+      body: String(r.body ?? ""),
+      sentAt: String(r.sentAt ?? ""),
+      to: String(r.email ?? ""),
+      delivery: "",
+      audience: audienceOf([String(r.email ?? "")], email),
+    });
+  }
+  comms.sort((a, b) => (a.sentAt < b.sentAt ? 1 : -1));
+  return c.json({ comms });
+});
+
+// GET /api/v1/orders/comms/:id — testo di una mail gia' inviata (da Resend).
+// Caricato solo quando l'operatore apre la riga: l'elenco non porta i corpi.
+ordersRoute.get("/comms/:id", async (c) => {
   try {
-    return c.json({ comms: await listForOrder(number) });
+    return c.json({ body: await fetchResendBody(c.req.param("id")) });
   } catch (err) {
-    return c.json({ error: "comms_failed", detail: String(err) }, 502);
+    return c.json({ error: "comm_body_failed", detail: String(err) }, 502);
   }
 });
 

@@ -2,7 +2,7 @@
 // "spedito" al cliente. Lo stato vive in order.metadata `kyron_status` su Saleor:
 // NON usa la fulfillment nativa (che manderebbe email Saleor) — qui controlliamo noi.
 import { setOrderMeta, fetchOrderMeta, fetchOrderHeader } from "@/core/saleor/orders.js";
-import { sendKyronEmail } from "@/core/email/mailer.js";
+import { sendAndLog } from "./email-log.js";
 
 export const WORKFLOW_STATUSES = [
   "nuovo",
@@ -57,11 +57,13 @@ export async function sendShipNotification(orderId: string): Promise<boolean> {
     console.log(`[orders] ship notify skipped (not in allowlist): ${to}`);
     return false;
   }
-  await sendKyronEmail(
-    `Il tuo ordine #${number} è stato spedito`,
-    renderShipEmail(number, channelName),
-    [userEmail],
-  );
+  await sendAndLog({
+    campaign: "ordine-spedito",
+    orderNumber: number,
+    to: userEmail,
+    subject: `Il tuo ordine #${number} è stato spedito`,
+    html: renderShipEmail(number, channelName),
+  });
   // Il marcatore si scrive SOLO dopo un invio riuscito. Se lo scrivessimo anche
   // sul ramo "bloccato dall'allowlist", quel cliente non riceverebbe mai la
   // mail il giorno in cui l'allowlist viene svuotata.

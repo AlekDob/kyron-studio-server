@@ -42,6 +42,9 @@ interface AgentRunOptions {
 export type AgentScope = "catalogo" | "orders";
 
 // Il default e' prod: e' li' che vendiamo. Staging si chiede esplicitamente.
+// Le due sezioni della scheda prodotto in Studio (products-filter.ts).
+const PRODUCT_TAB = z.enum(["informazioni", "sconti", "varianti"]);
+
 const TARGET = z
   .enum(["prod", "staging"])
   .default("prod")
@@ -50,11 +53,18 @@ const TARGET = z
 // Il result completo va al client (il pannello ci prende le thumbnail), ma al
 // modello serve solo il testo: senza imageUrl non puo' incollare foto in chat,
 // e senza description/id il contesto non si riempie di roba inutile.
-function slim<T extends { imageUrl?: unknown; description?: unknown; id?: unknown }>(
-  row: T,
-): Omit<T, "imageUrl" | "description" | "id"> {
-  const { imageUrl: _i, description: _d, id: _x, ...rest } = row;
-  return rest;
+function slim<
+  T extends { imageUrl?: unknown; images?: unknown; description?: unknown; id?: unknown },
+>(row: T): Omit<T, "imageUrl" | "images" | "description" | "id"> {
+  const { imageUrl: _i, images: _g, description: _d, id: _x, ...rest } = row;
+  // Anche le foto per variante servono solo al pannello: nel testo del modello
+  // sarebbero decine di URL a prodotto.
+  const variants = (rest as { variants?: Array<Record<string, unknown>> }).variants;
+  if (!variants) return rest;
+  return {
+    ...rest,
+    variants: variants.map(({ images: _vi, ...v }) => v),
+  } as Omit<T, "imageUrl" | "images" | "description" | "id">;
 }
 
 function asText(value: unknown) {
@@ -130,7 +140,24 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
             }
           }
           const products = await listProducts(target, { search, channelSlug: slug });
-          return { count: products.length, products, channelSlug: slug ?? null };
+          return {
+            count: products.length,
+            products,
+            channelSlug: slug ?? null,
+            // Il pannello Prodotti si muove da qui. Lo slug e' quello GIA'
+            // risolto (non il soprannome scritto dall'utente): risolverlo di
+            // nuovo nel browser sarebbe una seconda verita' sul passaggio piu'
+            // fragile della catena. Nessun `count`: il pannello cerca in fuzzy,
+            // il tool per sottostringa, e i due numeri non coinciderebbero.
+            _ui: {
+              component: "ProductsReceipt",
+              props: {
+                kind: "filter",
+                filter: { query: search ?? "", portal: slug ?? "all" },
+              },
+              id: `products_${Date.now()}`,
+            },
+          };
         }),
         experimental_toToolResultContent: (r) =>
           asText(
@@ -147,13 +174,52 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           ),
       }),
       get_product: tool({
-        description: "Scheda completa di un prodotto dal suo slug.",
-        parameters: z.object({ slug: z.string(), target: TARGET }),
-        execute: safe(async ({ slug, target }) => {
-          const product = await getProduct(target, slug);
-          return product ?? { error: `Prodotto "${slug}" non trovato su ${target}` };
+        description:
+          "Scheda completa di un prodotto dal suo slug. Il pannello apre la scheda da solo. Con `tab` la apre gia' sulla sezione giusta.",
+        parameters: z.object({
+          slug: z.string(),
+          tab: PRODUCT_TAB.optional().describe("sezione da mostrare nella scheda"),
+          target: TARGET,
         }),
-        experimental_toToolResultContent: (r) => asText("slug" in r ? slim(r) : r),
+        execute: safe(async ({ slug, tab, target }) => {
+          // Il modello arriva col nome, non con lo slug ("apple-pencil" invece di
+          // "apple-pencil-usb-c"): se lo slug non esiste lo cerchiamo per nome,
+          // invece di rispondere "prodotto non disponibile" su un prodotto che c'e'.
+          let product = await getProduct(target, slug);
+          if (!product) {
+            const hits = await listProducts(target, { search: slug.replace(/-/g, " ") });
+            if (hits.length === 1) product = hits[0];
+            else if (hits.length > 1) {
+              return {
+                error: `Piu' prodotti per "${slug}", scegli lo slug: ${hits
+                  .slice(0, 5)
+                  .map((p) => `${p.name} (${p.slug})`)
+                  .join(", ")}`,
+              };
+            }
+          }
+          if (!product) return { error: `Prodotto "${slug}" non trovato su ${target}` };
+          return {
+            ...product,
+            _ui: {
+              component: "ProductsReceipt",
+              props: {
+                kind: "product",
+                slug: product.slug,
+                name: product.name,
+                category: product.category ?? "",
+                tab,
+              },
+              id: `product_${product.slug}`,
+            },
+          };
+        }),
+        // Il descriptor serve solo al client: nel contesto del modello e' rumore.
+        experimental_toToolResultContent: (r) => {
+          const { _ui: _u, ...rest } = r as Record<string, unknown>;
+          void _u;
+          return asText("slug" in rest ? slim(rest) : rest);
+        },
       }),
       get_catalog_meta: tool({
         description:
@@ -328,6 +394,7 @@ export async function* runCommessoAgent(opts: AgentRunOptions) {
           }
           const plan = await planDaneaImport(target, { importId: entry.id, channelSlug });
           const result = await applyDaneaPlan(target, {
+            importId: entry.id,
             channelSlug,
             groups: plan.groups,
             mappings: entry.mappings,

@@ -3,6 +3,7 @@ import { studioAuthMiddleware } from "@/middleware/studio-auth.js";
 import { tenantMiddleware } from "@/core/tenant/middleware.js";
 import { getCatalogMeta, getChannelDirectory, getProduct, listProducts } from "./reads.js";
 import { getCatalogSales } from "./sales.js";
+import { listProductDiscounts } from "./discounts.js";
 import { daneaImportRoute } from "./danea-rest.js";
 import { addProductImageFile } from "./writes.js";
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
@@ -46,6 +47,16 @@ commessoRestRoute.get("/insights", async (c) => {
       getCatalogSales(),
     ]);
     return c.json({ channels, sales });
+  } catch (err) {
+    return c.json({ error: String(err) }, 502);
+  }
+});
+
+// Sconti per portale: sta fuori da /:slug perche' costa una query in piu' e
+// serve solo quando l'operatore apre la sezione.
+commessoRestRoute.get("/:slug/discounts", async (c) => {
+  try {
+    return c.json({ portals: await listProductDiscounts(targetOf(c), c.req.param("slug")) });
   } catch (err) {
     return c.json({ error: String(err) }, 502);
   }

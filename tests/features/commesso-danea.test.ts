@@ -9,6 +9,7 @@ import {
 } from "@/features/commesso/danea-parse.js";
 import { buildDaneaPlan } from "@/features/commesso/danea-plan.js";
 import { aggregatorsSkippedWithoutMapping } from "@/features/commesso/danea-apply.js";
+import { rowsFromPlan } from "@/features/commesso/danea-log.js";
 import type { DaneaPlanGroup } from "@/features/commesso/danea-plan.js";
 import { importIdFromChat, putDaneaImport, resolveProductsImport } from "@/features/commesso/danea-uploads.js";
 import { isAppleSku, matchSkuFromFilename } from "@/features/commesso/danea-sku.js";
@@ -193,5 +194,35 @@ describe("resolve import Danea", () => {
     const stored = putDaneaImport("EcommProdotti.xml", XML);
     const resolved = resolveProductsImport("EcommProdotti (7).xml", []);
     expect(resolved.id).toBe(stored.id);
+  });
+});
+
+describe("righe per lo storico import", () => {
+  it("un codice per riga, con l'esito giusto; le righe a prezzo zero non ci sono", () => {
+    const plan = buildDaneaPlan({
+      channelSlug: "default-channel",
+      groups: groupByAggregator(
+        parseDaneaXml(`<?xml version="1.0"?>
+<EasyfattProducts>
+  <Product><Code>NUOVO/A</Code><Description>iPad A16 128GB Wi-Fi - Blue</Description><Subcategory>iPad A16</Subcategory><CustomField1>IPAD-A16</CustomField1><GrossPrice1>409</GrossPrice1></Product>
+  <Product><Code>CAMBIA/A</Code><Description>iPad A16 256GB Wi-Fi - Blue</Description><Subcategory>iPad A16</Subcategory><CustomField1>IPAD-A16</CustomField1><GrossPrice1>509</GrossPrice1></Product>
+  <Product><Code>FERMO/A</Code><Description>iPad A16 512GB Wi-Fi - Blue</Description><Subcategory>iPad A16</Subcategory><CustomField1>IPAD-A16</CustomField1><GrossPrice1>709</GrossPrice1></Product>
+  <Product><Code>ZERO/A</Code><Description>iPad A16 1TB Wi-Fi - Blue</Description><Subcategory>iPad A16</Subcategory><CustomField1>IPAD-A16</CustomField1><GrossPrice1>0</GrossPrice1></Product>
+</EasyfattProducts>`),
+      ),
+      existing: [
+        { sku: "CAMBIA/A", productSlug: "ipad-a16", priceEur: 489 },
+        { sku: "FERMO/A", productSlug: "ipad-a16", priceEur: 709 },
+      ],
+    });
+
+    const rows = rowsFromPlan(plan);
+    const bySku = new Map(rows.map((r) => [r.sku, r]));
+
+    expect(rows).toHaveLength(3);
+    expect(bySku.get("ZERO/A")).toBeUndefined();
+    expect(bySku.get("NUOVO/A")).toMatchObject({ status: "new", priceEur: 409, currentPriceEur: null });
+    expect(bySku.get("CAMBIA/A")).toMatchObject({ status: "changed", priceEur: 509, currentPriceEur: 489 });
+    expect(bySku.get("FERMO/A")?.status).toBe("unchanged");
   });
 });

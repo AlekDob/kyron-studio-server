@@ -11,8 +11,10 @@ import {
 } from "@/core/saleor/orders.js";
 import { buildPortalIndex, enrichOrder, type PortalMeta } from "@/features/orders/enrich.js";
 import { querySpecSchema } from "@/core/query/spec.js";
+import { fieldHints, splitSimpleFilters } from "@/features/orders/spec-simple.js";
 import {
   bucketTotals,
+  filterOptions,
   filterOrders,
   ORDER_FIELD_NAMES,
 } from "@/features/orders/query-fields.js";
@@ -56,12 +58,18 @@ export const orderTools = {
       "Filtra la lista ordini del pannello a fianco e ne torna il conteggio.",
       "La lista in pagina si riallinea da sola: NON ripetere le righe in chat.",
       "Il filtro si compone con `spec`: `all` = condizioni in AND, `any` = in OR.",
-      `Campi: ${ORDER_FIELD_NAMES.join(", ")}.`,
-      'Operatori: eq, ne, gt, gte, lt, lte, contains, in, between, empty, notEmpty.',
+      "Ogni condizione ha SEMPRE le tre chiavi `field`, `op`, `value`:",
+      '{"field":"totale","op":"gte","value":600}. Mai {"totale":"gte"}.',
+      `Valori di \`field\`: ${ORDER_FIELD_NAMES.join(", ")}.`,
+      'Valori di `op`: eq, ne, gt, gte, lt, lte, contains, in, between, empty, notEmpty.',
       'Valori di `stato`: confermati | da-confermare | annullati.',
       'Valori di `metodoPagamento`: card | bank-transfer | teacher-card.',
-      'Esempio "sopra 600 euro non confermati di r.russo": all=[{totale,gte,600},{stato,eq,"da-confermare"},{agente,eq,"r.russo"}].',
-      'Esempio "con un iPad pagati con Carta del Docente": all=[{prodotti,contains,"ipad"},{metodoPagamento,eq,"teacher-card"}].',
+      "Il campo `portale` e' uno slug tecnico: se la scuola te la nominano a parole usa `portaleNome` con `contains`.",
+      "Ogni risposta porta `portaliDisponibili` e `agentiDisponibili` del periodo: sono gli unici valori validi, non inventarne altri.",
+      "Un nome di persona e' ambiguo: puo' essere l'agente commerciale o il cliente. Se l'utente non lo dice, CHIEDIGLIELO prima di filtrare invece di sceglierne uno tu.",
+      "Se la risposta torna `suggerimenti`, NON dire che non ci sono ordini: quel valore esiste su un altro campo, proponilo all'utente (es. \"ravelli non risulta tra i clienti, ma e' l'agente a.ravelli: filtro per agente?\").",
+      'Esempio "sopra 600 euro non confermati di r.russo": {"all":[{"field":"totale","op":"gte","value":600},{"field":"stato","op":"eq","value":"da-confermare"},{"field":"agente","op":"eq","value":"r.russo"}]}.',
+      'Esempio "con un iPad pagati con Carta del Docente": {"all":[{"field":"prodotti","op":"contains","value":"ipad"},{"field":"metodoPagamento","op":"eq","value":"teacher-card"}]}.',
       "Per le righe complete di un ordine usa get_order.",
     ].join(" "),
     parameters: z.object({
@@ -76,27 +84,32 @@ export const orderTools = {
       const all = (await loadOrders(from, to)).map((o) => enrichOrder(o, index));
       const orders = filterOrders(all, {}, spec);
       const totalGross = orders.reduce((s, o) => s + o.totalGross, 0);
+      // Portali e agenti del periodo INTERO (non del set filtrato): senza,
+      // l'agente tira a indovinare lo slug, prende zero righe e racconta che
+      // non ci sono ordini. Vedi "portale = pbs" -> 0.
+      const options = filterOptions(all);
+      // La ricevuta accende i chip del pannello: quello che nella spec e' gia'
+      // un filtro semplice (portale, agente, stato) esce da li' e diventa un
+      // chip vero, il resto resta spec. Vedi spec-simple.ts.
+      const simple = splitSimpleFilters(spec, options);
       return {
         from,
         to,
         count: orders.length,
         totalGross,
         buckets: bucketTotals(orders),
+        portaliDisponibili: options.portals,
+        agentiDisponibili: options.agents,
+        // Presente solo con zero risultati: dice su quale altro campo quel
+        // valore esiste davvero.
+        ...(orders.length === 0 ? { suggerimenti: fieldHints(spec, options) } : {}),
         // ponytail: 40 righe al modello, il resto lo mostra il pannello.
         orders: orders.slice(0, 40).map(slimOrder),
         _ui: {
           component: "OrdersReceipt",
           props: {
             kind: "filter",
-            filter: {
-              from,
-              to,
-              portal: "all",
-              agent: "all",
-              status: "all",
-              query: "",
-              spec: spec ?? null,
-            },
+            filter: { from, to, query: "", ...simple },
             count: orders.length,
             totalGross,
           },

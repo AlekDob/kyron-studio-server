@@ -1,49 +1,28 @@
 // Comunicazioni ai clienti a partire da un file di DDT Danea.
 //
-// Due passaggi, come per i prezzi: prima il piano (sola lettura), poi l'invio
-// con conferma esplicita. Il piano NON viaggia tra i turni: l'invio ricalcola
-// tutto da importId + campagna, cosi' due conferme di fila non raddoppiano
-// niente.
-//
-// Il lotto e' il cursore: 50 documenti per chiamata, sempre i primi non ancora
-// inviati in ordine di docKey. Niente job in background, niente stato di
-// avanzamento da tenere.
+// Qui c'e' solo la FONTE dei destinatari: il file DDT caricato, agganciato agli
+// ordini Saleor. Piano, lotti, allowlist, kill switch, claim anti-doppio-invio e
+// invio vivono in `core/email/campaign.ts`, condivisi con le comunicazioni ai
+// clienti di Bea.
 import { fetchOrdersForRange, setOrderMeta } from "@/core/saleor/orders.js";
-import { allowlistFromEnv, passesAllowlist, sendBulk, type BulkMessage } from "@/core/email/bulk.js";
-import { excludedEmails } from "@/features/commesso/sales.js";
+import {
+  planCampaign,
+  sendCampaign,
+  sendCampaignTestMail,
+  assertMailEnabled,
+  assertOneEmail,
+  BATCH_SIZE,
+  type CampaignPlan,
+  type CampaignSendResult,
+  type Recipient,
+} from "@/core/email/campaign.js";
 import { getDdtImport, type StoredDdtImport } from "@/features/commesso/danea-uploads.js";
-import type { DaneaDocument } from "@/features/commesso/danea-ddt.js";
 import { matchDocuments, rangeForDocuments } from "./ddt-match.js";
-import { claimSend, listSent, markFailed } from "./email-log.js";
-import { campaignPlainText, renderDdtEmail, type DdtCampaign } from "./ddt-mail-template.js";
-import { sendKyronEmail } from "@/core/email/mailer.js";
+import { ddtDetailsHtml, type DdtCampaign } from "./ddt-mail-template.js";
 
-export const BATCH_SIZE = 50;
-const ALLOW_ENV = "DDT_MAIL_ALLOW";
-
-export interface DdtRecipient {
-  docKey: string;
-  email: string;
-  customerName: string;
-  portalSlug: string;
-  orderNumber: string;
-  matched: boolean;
-}
-
-export interface DdtMailPlan {
-  filename: string;
-  campaignId: string;
-  campaign: DdtCampaign;
-  total: number;
-  eligible: number;
-  alreadySent: number;
-  matched: number;
-  excluded: number;
-  blockedByAllowlist: number;
-  allowlistActive: boolean;
-  recipients: DdtRecipient[];
-  previews: { email: string; subject: string; html: string }[];
-}
+export { BATCH_SIZE };
+export type DdtMailPlan = CampaignPlan;
+export type DdtSendResult = CampaignSendResult;
 
 /** Indice DDT -> ordine, calcolato una volta e tenuto nello store per il TTL. */
 async function orderIndex(entry: StoredDdtImport): Promise<Record<string, { orderId: string; orderNumber: string }>> {
@@ -58,77 +37,22 @@ async function orderIndex(entry: StoredDdtImport): Promise<Record<string, { orde
   return index;
 }
 
-/** Chi riceve davvero: ha una mail, non e' un nostro indirizzo di test, passa l'allowlist. */
-function selectRecipients(
-  docs: DaneaDocument[],
-  index: Record<string, { orderId: string; orderNumber: string }>,
-  allow: string[],
-): { recipients: DdtRecipient[]; excluded: number; blocked: number } {
-  const skip = excludedEmails().map((e) => e.toLowerCase());
-  let excluded = 0;
-  let blocked = 0;
-  const recipients: DdtRecipient[] = [];
-  for (const d of [...docs].sort((a, b) => a.docKey.localeCompare(b.docKey))) {
-    if (!d.customerEmail || skip.includes(d.customerEmail)) {
-      excluded++;
-      continue;
-    }
-    if (!passesAllowlist(d.customerEmail, allow)) {
-      blocked++;
-      continue;
-    }
-    const hit = index[d.docKey];
-    recipients.push({
-      docKey: d.docKey,
-      email: d.customerEmail,
-      customerName: d.customerName,
-      portalSlug: d.portalSlug,
-      orderNumber: hit?.orderNumber ?? "",
-      matched: Boolean(hit),
-    });
-  }
-  return { recipients, excluded, blocked };
-}
-
-export async function planDdtMailing(args: {
-  importId: string;
-  campaignId: string;
-  campaign: DdtCampaign;
-}): Promise<DdtMailPlan> {
+async function ddtPlan(args: { importId: string; campaignId: string; campaign: DdtCampaign }): Promise<CampaignPlan> {
   const entry = getDdtImport(args.importId);
   const index = await orderIndex(entry);
-  const allow = allowlistFromEnv(ALLOW_ENV);
-  const { recipients, excluded, blocked } = selectRecipients(entry.documents, index, allow);
-  const sent = await listSent(args.campaignId);
-  const pending = recipients.filter((r) => !sent.has(r.docKey));
-  const byKey = new Map(entry.documents.map((d) => [d.docKey, d]));
-  return {
-    filename: entry.filename,
-    campaignId: args.campaignId,
-    campaign: args.campaign,
-    total: entry.documents.length,
-    eligible: pending.length,
-    alreadySent: recipients.length - pending.length,
-    matched: recipients.filter((r) => r.matched).length,
-    excluded,
-    blockedByAllowlist: blocked,
-    allowlistActive: allow.length > 0,
-    recipients: pending,
-    previews: pending.slice(0, 3).map((r) => ({
-      email: r.email,
-      subject: args.campaign.subject,
-      html: renderDdtEmail(byKey.get(r.docKey) as DaneaDocument, args.campaign),
-    })),
-  };
+  const recipients: Recipient[] = entry.documents.map((d) => ({
+    key: d.docKey,
+    email: d.customerEmail,
+    name: d.customerName,
+    group: d.portalSlug,
+    orderNumber: index[d.docKey]?.orderNumber ?? "",
+    matched: Boolean(index[d.docKey]),
+    detailsHtml: ddtDetailsHtml(d),
+  }));
+  return planCampaign({ source: entry.filename, campaignId: args.campaignId, campaign: args.campaign, recipients });
 }
 
-// Invio di PROVA: una mail sola, all'indirizzo che l'operatore scrive nella card.
-// Serve proprio quando l'invio di massa e' ancora spento, quindi NON passa da
-// DDT_MAIL_ENABLED ne' dall'allowlist. Non tocca email_log e non scrive niente
-// sull'ordine: la prova non deve consumare il claim anti-doppio-invio.
-//
-// L'HTML lo ri-renderizza il server: dal client arriva solo il testo, mai markup.
-const ONE_EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
+export const planDdtMailing = ddtPlan;
 
 export async function sendDdtTestMail(args: {
   importId: string;
@@ -137,23 +61,10 @@ export async function sendDdtTestMail(args: {
   previewIndex: number;
   to: string;
 }): Promise<{ to: string; docKey: string }> {
-  const to = args.to.trim();
-  if (!ONE_EMAIL.test(to)) {
-    throw new Error("Indirizzo di prova non valido: serve un solo indirizzo email.");
-  }
-  const plan = await planDdtMailing(args);
-  const i = Math.min(Math.max(args.previewIndex, 0), plan.previews.length - 1);
-  const preview = plan.previews[i];
-  if (!preview) throw new Error("Nessun destinatario da usare per l'anteprima.");
-  await sendKyronEmail(`[PROVA] ${args.campaign.subject}`, preview.html, [to]);
-  return { to, docKey: plan.recipients[i]?.docKey ?? "" };
-}
-
-export interface DdtSendResult {
-  sent: number;
-  skipped: number;
-  failed: { email: string; error: string }[];
-  remaining: number;
+  assertOneEmail(args.to);
+  const plan = await ddtPlan(args);
+  const res = await sendCampaignTestMail({ plan, previewIndex: args.previewIndex, to: args.to });
+  return { to: res.to, docKey: res.key };
 }
 
 export async function sendDdtMailing(args: {
@@ -161,56 +72,15 @@ export async function sendDdtMailing(args: {
   campaignId: string;
   campaign: DdtCampaign;
 }): Promise<DdtSendResult> {
-  if (process.env.DDT_MAIL_ENABLED !== "true") {
-    throw new Error("Invio comunicazioni disattivato: manca DDT_MAIL_ENABLED=true.");
-  }
+  assertMailEnabled();
   const entry = getDdtImport(args.importId);
-  const plan = await planDdtMailing(args);
-  const batch = plan.recipients.slice(0, BATCH_SIZE);
-  const byKey = new Map(entry.documents.map((d) => [d.docKey, d]));
-  const text = campaignPlainText(args.campaign);
-
-  // Claim PRIMA di inviare: se Payload non risponde ci fermiamo, non mandiamo.
-  const claims = new Map<string, string>();
-  const messages: BulkMessage[] = [];
-  let skipped = 0;
-  for (const r of batch) {
-    const doc = byKey.get(r.docKey) as DaneaDocument;
-    const id = await claimSend({
-      campaign: args.campaignId,
-      docKey: r.docKey,
-      email: r.email,
-      orderNumber: r.orderNumber,
-      subject: args.campaign.subject,
-      body: text,
-    });
-    if (!id) {
-      skipped++;
-      continue;
-    }
-    claims.set(r.docKey, id);
-    messages.push({
-      key: r.docKey,
-      to: r.email,
-      subject: args.campaign.subject,
-      html: renderDdtEmail(doc, args.campaign),
-    });
-  }
-
-  const byDocKey = new Map(batch.map((r) => [r.docKey, r]));
-  const failed: { email: string; error: string }[] = [];
-  const results = await sendBulk(messages, async (res) => {
-    const claimId = claims.get(res.key);
-    if (!res.ok && claimId) await markFailed(claimId);
-    if (!res.ok) failed.push({ email: res.to, error: res.error });
+  const plan = await ddtPlan(args);
+  return sendCampaign({
+    plan,
     // Display sulla scheda ordine: e' un promemoria, non una guardia.
-    const rec = byDocKey.get(res.key);
-    if (res.ok && rec?.orderNumber) {
-      const orderId = entry.orderIndex?.[res.key]?.orderId;
+    onSent: async (r) => {
+      const orderId = entry.orderIndex?.[r.key]?.orderId;
       if (orderId) await setOrderMeta(orderId, "kyron_comms", args.campaignId);
-    }
+    },
   });
-
-  const sent = results.filter((r) => r.ok).length;
-  return { sent, skipped, failed, remaining: Math.max(0, plan.eligible - batch.length) };
 }

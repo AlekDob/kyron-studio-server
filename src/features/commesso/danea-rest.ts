@@ -4,6 +4,7 @@ import { listPortals } from "@/features/portals/reader.js";
 import { attachAppleImages } from "./danea-apple.js";
 import { applyDaneaPlan, type GroupMapping } from "./danea-apply.js";
 import { applyImagesBySku } from "./danea-images.js";
+import { listDaneaImports } from "./danea-log.js";
 import { addProductsToPortals } from "./danea-portals.js";
 import { planDaneaImport } from "./danea-service.js";
 import {
@@ -36,6 +37,17 @@ interface UploadedFile {
 function isUploadedFile(v: unknown): v is UploadedFile {
   return typeof v === "object" && v !== null && "arrayBuffer" in v && "name" in v;
 }
+
+// Storico degli import: quello che lo store in RAM dimentica dopo un'ora.
+// Sta PRIMA delle rotte "/:id/..." per non farsi mangiare "history" come id.
+daneaImportRoute.get("/history", async (c) => {
+  const limit = Number(c.req.query("limit") ?? 5);
+  try {
+    return c.json({ imports: await listDaneaImports(Number.isFinite(limit) ? limit : 5) });
+  } catch (err) {
+    return c.json({ error: fail(err).error }, 400);
+  }
+});
 
 daneaImportRoute.post("/upload", async (c) => {
   const form = await c.req.formData();
@@ -102,6 +114,7 @@ daneaImportRoute.post("/:id/apply", async (c) => {
     }
     const plan = await planDaneaImport(targetOf(c), { importId, channelSlug });
     const result = await applyDaneaPlan(targetOf(c), {
+      importId,
       channelSlug,
       groups: plan.groups,
       mappings: entry.mappings,

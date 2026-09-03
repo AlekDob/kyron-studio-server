@@ -7,6 +7,7 @@
 // passano dal piano prezzi. I prodotti nuovi nascono NON pubblicati (R3).
 import type { SaleorTarget } from "@/features/portals/enable/saleor-admin.js";
 import { setVariantPrice } from "@/features/portals/enable/seed-steps.js";
+import { recordDaneaApply } from "./danea-log.js";
 import type { DaneaPlanGroup } from "./danea-plan.js";
 import { getProduct } from "./reads.js";
 import { createProduct, upsertVariant } from "./writes.js";
@@ -59,6 +60,7 @@ export function aggregatorsSkippedWithoutMapping(
 export async function applyDaneaPlan(
   target: SaleorTarget,
   args: {
+    importId: string;
     channelSlug: string;
     groups: DaneaPlanGroup[];
     mappings: GroupMapping[];
@@ -103,5 +105,8 @@ export async function applyDaneaPlan(
       result.createdVariants.push({ sku: variant.sku, priceEur: variant.priceEur });
     }
   }
+  // Segna nello storico che questo import e' stato applicato davvero, non solo
+  // guardato. Come per il piano: in sottofondo, un log rotto non ferma niente.
+  void recordDaneaApply(args.importId, result);
   return result;
 }
